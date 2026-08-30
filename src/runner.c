@@ -5,6 +5,7 @@
 #include "vm.h"
 #include "utils.h"
 #include "json_writer.h"
+#include "json_reader.h"
 #include "collision.h"
 
 #include <stdint.h>
@@ -4328,6 +4329,79 @@ void Runner_dumpState(Runner* runner) {
 
 // ===[ JSON State Dump ]===
 
+static bool checkpointRValueSupported(RValue val, int32_t depth, int32_t* remainingCells) {
+    if (depth > 16 || *remainingCells <= 0) return false;
+    switch (val.type) {
+        case RVALUE_UNDEFINED:
+        case RVALUE_STRING:
+        case RVALUE_INT32:
+#ifndef NO_RVALUE_INT64
+        case RVALUE_INT64:
+#endif
+        case RVALUE_BOOL:
+        case RVALUE_REAL:
+        case RVALUE_ASSETREF:
+            return true;
+        case RVALUE_ARRAY:
+            if (val.array == nullptr) return true;
+            repeat(GMLArray_length1D(val.array), i) {
+                (*remainingCells)--;
+                RValue* cell = GMLArray_slot(val.array, i);
+                if (cell != nullptr && !checkpointRValueSupported(*cell, depth + 1, remainingCells)) return false;
+            }
+            return true;
+        case RVALUE_METHOD:
+        case RVALUE_STRUCT:
+            return false;
+    }
+    return false;
+}
+
+static bool checkpointVariablesSupported(const IntRValueHashMap* variables, int32_t* remainingCells) {
+    for (uint32_t i = 0; i < variables->capacity; i++) {
+        const IntRValueEntry* entry = &variables->entries[i];
+        if (entry->key == INT_RVALUE_HASHMAP_EMPTY_KEY) continue;
+        if (!checkpointRValueSupported(entry->value, 0, remainingCells)) return false;
+    }
+    return true;
+}
+
+RunnerCheckpointStatus Runner_checkpointStatus(Runner* runner) {
+    if (runner == nullptr || runner->currentRoom == nullptr) return RUNNER_CHECKPOINT_NO_ACTIVE_ROOM;
+    if (runner->pendingRoom != -1) return RUNNER_CHECKPOINT_TRANSITION_ACTIVE;
+    if (runner->currentIni != nullptr || runner->currentIniDirty ||
+        arrlen(runner->structInstances) != 0 || arrlen(runner->callLaterEntries) != 0 ||
+        arrlen(runner->asyncSaveLoadQueue) != 0 || arrlen(runner->asyncBufferGroupOps) != 0 ||
+        runner->asyncBufferGroupActive || runner->currentIniPath != nullptr) {
+        return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
+    }
+    repeat(MAX_OPEN_TEXT_FILES, i) if (runner->openTextFiles[i].isOpen) return RUNNER_CHECKPOINT_FILE_OPEN;
+    repeat(MAX_OPEN_BINARY_FILES, i) if (runner->openBinaryFiles[i].isOpen) return RUNNER_CHECKPOINT_FILE_OPEN;
+    repeat(arrlen(runner->dsMapPool), i) if (runner->dsMapPool[i] != nullptr && shlen(runner->dsMapPool[i]) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
+    repeat(arrlen(runner->dsListPool), i) if (!runner->dsListPool[i].freed && arrlen(runner->dsListPool[i].items) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
+    repeat(arrlen(runner->dsQueuePool), i) if (!runner->dsQueuePool[i].freed && arrlen(runner->dsQueuePool[i].items) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
+    repeat(arrlen(runner->dsStackPool), i) if (!runner->dsStackPool[i].freed && arrlen(runner->dsStackPool[i].items) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
+    repeat(arrlen(runner->dsPriorityPool), i) if (!runner->dsPriorityPool[i].freed && arrlen(runner->dsPriorityPool[i].items) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
+    repeat(arrlen(runner->dsGridPool), i) if (!runner->dsGridPool[i].freed) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
+    repeat(arrlen(runner->gmlBufferPool), i) if (runner->gmlBufferPool[i].isValid) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
+    repeat(arrlen(runner->mpGridPool), i) if (runner->mpGridPool[i].inUse) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
+    repeat(runner->dataWin->room.count, i) {
+        if ((int32_t) i != runner->currentRoomIndex && runner->dataWin->room.rooms[i].persistent &&
+            runner->savedRoomStates[i].initialized) return RUNNER_CHECKPOINT_PERSISTENT_ROOM_STATE;
+    }
+    int32_t remainingCells = 100000;
+    if (!checkpointVariablesSupported(&runner->vmContext->globalScopeInstance->selfVars, &remainingCells)) return RUNNER_CHECKPOINT_VALUE_UNSUPPORTED;
+    repeat(arrlen(runner->instances), i) {
+        Instance* instance = runner->instances[i];
+        if (instance->active && !checkpointVariablesSupported(&instance->selfVars, &remainingCells)) return RUNNER_CHECKPOINT_VALUE_UNSUPPORTED;
+    }
+    return RUNNER_CHECKPOINT_READY;
+}
+
+bool Runner_canCheckpoint(Runner* runner) {
+    return Runner_checkpointStatus(runner) == RUNNER_CHECKPOINT_READY;
+}
+
 static void writeRValueJson(JsonWriter* w, RValue val) {
     switch (val.type) {
         case RVALUE_REAL:
@@ -4390,6 +4464,8 @@ char* Runner_dumpStateJson(Runner* runner) {
 
     JsonWriter_beginObject(&w);
 
+    JsonWriter_propertyInt(&w, "checkpointSchemaVersion", 1);
+
     JsonWriter_propertyInt(&w, "frame", runner->frameCount);
 
     // Room info
@@ -4434,7 +4510,12 @@ char* Runner_dumpStateJson(Runner* runner) {
 
         JsonWriter_propertyDouble(&w, "x", inst->x);
         JsonWriter_propertyDouble(&w, "y", inst->y);
+        JsonWriter_propertyDouble(&w, "xprevious", inst->xprevious);
+        JsonWriter_propertyDouble(&w, "yprevious", inst->yprevious);
+        JsonWriter_propertyDouble(&w, "xstart", inst->xstart);
+        JsonWriter_propertyDouble(&w, "ystart", inst->ystart);
         JsonWriter_propertyInt(&w, "depth", inst->depth);
+        JsonWriter_propertyInt(&w, "layer", inst->layer);
 
         // Sprite
         JsonWriter_key(&w, "sprite");
@@ -4459,6 +4540,13 @@ char* Runner_dumpStateJson(Runner* runner) {
         JsonWriter_propertyBool(&w, "active", inst->active);
         JsonWriter_propertyBool(&w, "solid", inst->solid);
         JsonWriter_propertyBool(&w, "persistent", inst->persistent);
+        JsonWriter_propertyDouble(&w, "speed", inst->speed);
+        JsonWriter_propertyDouble(&w, "direction", inst->direction);
+        JsonWriter_propertyDouble(&w, "hspeed", inst->hspeed);
+        JsonWriter_propertyDouble(&w, "vspeed", inst->vspeed);
+        JsonWriter_propertyDouble(&w, "friction", inst->friction);
+        JsonWriter_propertyDouble(&w, "gravity", inst->gravity);
+        JsonWriter_propertyDouble(&w, "gravityDirection", inst->gravityDirection);
 
         // Alarms
         JsonWriter_key(&w, "alarms");
@@ -4560,6 +4648,207 @@ char* Runner_dumpStateJson(Runner* runner) {
     char* result = JsonWriter_copyOutput(&w);
     JsonWriter_free(&w);
     return result;
+}
+
+static JsonValue* checkpointField(const JsonValue* object, const char* name, JsonValueType type) {
+    if (!JsonReader_isObject(object)) return nullptr;
+    JsonValue* value = JsonReader_getJsonValueByKey(object, name);
+    return value != nullptr && value->type == type ? value : nullptr;
+}
+
+static bool checkpointNumber(const JsonValue* object, const char* name, double* result) {
+    JsonValue* value = checkpointField(object, name, JSON_NUMBER);
+    if (value == nullptr) return false;
+    *result = JsonReader_getDouble(value);
+    return isfinite(*result);
+}
+
+static bool checkpointInteger(const JsonValue* object, const char* name, int32_t* result) {
+    double number;
+    if (!checkpointNumber(object, name, &number) || number < INT32_MIN || number > INT32_MAX || number != (int32_t) number) return false;
+    *result = (int32_t) number;
+    return true;
+}
+
+static bool checkpointBoolean(const JsonValue* object, const char* name, bool* result) {
+    JsonValue* value = checkpointField(object, name, JSON_BOOL);
+    if (value == nullptr) return false;
+    *result = JsonReader_getBool(value);
+    return true;
+}
+
+static bool checkpointRValueFromJson(VMContext* vm, const JsonValue* value, int32_t depth, int32_t* remainingCells, RValue* result) {
+    if (value == nullptr || depth > 16 || *remainingCells <= 0) return false;
+    switch (value->type) {
+        case JSON_NULL:
+            *result = RValue_makeUndefined();
+            return true;
+        case JSON_BOOL:
+            *result = RValue_makeBool(JsonReader_getBool(value));
+            return true;
+        case JSON_NUMBER: {
+            double number = JsonReader_getDouble(value);
+            if (!isfinite(number)) return false;
+            *result = RValue_makeReal(number);
+            return true;
+        }
+        case JSON_STRING:
+            *result = RValue_makeOwnedString(safeStrdup(JsonReader_getString(value)));
+            return true;
+        case JSON_ARRAY: {
+            int32_t length = JsonReader_arrayLength(value);
+            if (length < 0 || length > *remainingCells) return false;
+            GMLArray* array = GMLArray_create(vm->dataWin->gen8.wadVersion, 0);
+            repeat(length, i) {
+                (*remainingCells)--;
+                RValue cell = RValue_makeUndefined();
+                if (!checkpointRValueFromJson(vm, JsonReader_getArrayElement(value, i), depth + 1, remainingCells, &cell)) {
+                    GMLArray_decRef(array);
+                    return false;
+                }
+                GMLArray_add(array, cell);
+                RValue_free(&cell);
+            }
+            *result = RValue_makeArray(array);
+            return true;
+        }
+        case JSON_OBJECT:
+            return false;
+    }
+    return false;
+}
+
+static bool restoreCheckpointVariables(VMContext* vm, Instance* target, const JsonValue* object, int32_t* remainingCells) {
+    if (!JsonReader_isObject(object)) return false;
+    repeat(JsonReader_objectLength(object), i) {
+        const char* name = JsonReader_getJsonKeyByIndex(object, i);
+        if (name == nullptr || name[0] == '\0') return false;
+        RValue value = RValue_makeUndefined();
+        if (!checkpointRValueFromJson(vm, JsonReader_getJsonValueByIndex(object, i), 0, remainingCells, &value)) return false;
+        Instance_setSelfVar(target, VM_getOrAllocateVarID(vm, name), value);
+        RValue_free(&value);
+    }
+    return true;
+}
+
+static void clearCheckpointInstances(Runner* runner) {
+    repeat(arrlen(runner->instances), i) {
+        Instance* instance = runner->instances[i];
+        Runner_removeInstanceLayerElement(runner, instance->instanceId);
+        hmdel(runner->instancesById, instance->instanceId);
+        Instance_free(instance);
+    }
+    arrfree(runner->instances);
+    runner->instances = nullptr;
+    Runner_clearAllObjectLists(runner);
+    runner->drawableListStructureDirty = true;
+}
+
+static bool restoreCheckpointInstance(Runner* runner, const JsonValue* value, int32_t* remainingCells) {
+    int32_t instanceId, objectIndex, depth, layer;
+    double x, y, xprevious, yprevious, xstart, ystart;
+    double speed, direction, hspeed, vspeed, friction, gravity, gravityDirection;
+    bool visible, active, solid, persistent;
+    JsonValue* sprite = checkpointField(value, "sprite", JSON_OBJECT);
+    JsonValue* scale = checkpointField(value, "scale", JSON_OBJECT);
+    JsonValue* alarms = checkpointField(value, "alarms", JSON_OBJECT);
+    JsonValue* variables = checkpointField(value, "selfVariables", JSON_OBJECT);
+    int32_t spriteIndex, blend;
+    double imageIndex, imageSpeed, imageXscale, imageYscale, imageAngle, imageAlpha;
+    if (!checkpointInteger(value, "instanceId", &instanceId) || instanceId < 0 ||
+        !checkpointInteger(value, "objectIndex", &objectIndex) || objectIndex < 0 ||
+        (uint32_t) objectIndex >= runner->dataWin->objt.count ||
+        !checkpointNumber(value, "x", &x) || !checkpointNumber(value, "y", &y) ||
+        !checkpointNumber(value, "xprevious", &xprevious) || !checkpointNumber(value, "yprevious", &yprevious) ||
+        !checkpointNumber(value, "xstart", &xstart) || !checkpointNumber(value, "ystart", &ystart) ||
+        !checkpointInteger(value, "depth", &depth) || !checkpointInteger(value, "layer", &layer) ||
+        !checkpointInteger(sprite, "index", &spriteIndex) || !checkpointNumber(sprite, "imageIndex", &imageIndex) ||
+        !checkpointNumber(sprite, "imageSpeed", &imageSpeed) || !checkpointNumber(scale, "x", &imageXscale) ||
+        !checkpointNumber(scale, "y", &imageYscale) || !checkpointNumber(value, "angle", &imageAngle) ||
+        !checkpointNumber(value, "alpha", &imageAlpha) || !checkpointInteger(value, "blend", &blend) ||
+        !checkpointBoolean(value, "visible", &visible) || !checkpointBoolean(value, "active", &active) ||
+        !checkpointBoolean(value, "solid", &solid) || !checkpointBoolean(value, "persistent", &persistent) ||
+        !checkpointNumber(value, "speed", &speed) || !checkpointNumber(value, "direction", &direction) ||
+        !checkpointNumber(value, "hspeed", &hspeed) || !checkpointNumber(value, "vspeed", &vspeed) ||
+        !checkpointNumber(value, "friction", &friction) || !checkpointNumber(value, "gravity", &gravity) ||
+        !checkpointNumber(value, "gravityDirection", &gravityDirection) || alarms == nullptr || variables == nullptr) return false;
+
+    Instance* instance = createAndInitInstance(runner, instanceId, objectIndex, x, y);
+    instance->xprevious = (float) xprevious;
+    instance->yprevious = (float) yprevious;
+    instance->xstart = (float) xstart;
+    instance->ystart = (float) ystart;
+    instance->depth = depth;
+    instance->layer = layer;
+    instance->spriteIndex = spriteIndex;
+    instance->imageIndex = (float) imageIndex;
+    instance->imageSpeed = (float) imageSpeed;
+    instance->imageXscale = (float) imageXscale;
+    instance->imageYscale = (float) imageYscale;
+    instance->imageAngle = (float) imageAngle;
+    instance->imageAlpha = (float) imageAlpha;
+    instance->imageBlend = (uint32_t) blend;
+    instance->visible = visible;
+    instance->active = active;
+    instance->solid = solid;
+    instance->persistent = persistent;
+    instance->speed = (float) speed;
+    instance->direction = (float) direction;
+    instance->hspeed = (float) hspeed;
+    instance->vspeed = (float) vspeed;
+    instance->friction = (float) friction;
+    instance->gravity = (float) gravity;
+    instance->gravityDirection = (float) gravityDirection;
+    repeat(JsonReader_objectLength(alarms), i) {
+        const char* alarmName = JsonReader_getJsonKeyByIndex(alarms, i);
+        char* end = nullptr;
+        long alarmIndex = strtol(alarmName, &end, 10);
+        JsonValue* alarmValue = JsonReader_getJsonValueByIndex(alarms, i);
+        if (end == alarmName || *end != '\0' || alarmIndex < 0 || alarmIndex >= GML_ALARM_COUNT ||
+            !JsonReader_isNumber(alarmValue)) return false;
+        int64_t alarm = JsonReader_getInt(alarmValue);
+        if (alarm < INT32_MIN || alarm > INT32_MAX) return false;
+        instance->alarm[alarmIndex] = (int32_t) alarm;
+        if (alarm >= 0) instance->activeAlarmMask |= (uint16_t) (1u << alarmIndex);
+    }
+    if (!restoreCheckpointVariables(runner->vmContext, instance, variables, remainingCells)) return false;
+    if (layer >= 0 && Runner_findRuntimeLayerById(runner, layer) != nullptr) {
+        Runner_addInstanceLayerElement(runner, layer, instanceId);
+    }
+    instance->createEventFired = true;
+    if ((uint32_t) instanceId >= runner->nextInstanceId) runner->nextInstanceId = (uint32_t) instanceId + 1;
+    return true;
+}
+
+bool Runner_restoreStateJson(Runner* runner, const char* json) {
+    JsonValue* root = JsonReader_parse(json);
+    if (root == nullptr) return false;
+    int32_t schema, frame, roomIndex;
+    JsonValue* room = checkpointField(root, "room", JSON_OBJECT);
+    JsonValue* instances = checkpointField(root, "instances", JSON_ARRAY);
+    JsonValue* globals = checkpointField(root, "globalVariables", JSON_OBJECT);
+    bool valid = checkpointInteger(root, "checkpointSchemaVersion", &schema) && schema == 1 &&
+        checkpointInteger(root, "frame", &frame) && frame >= 0 && checkpointInteger(room, "index", &roomIndex) &&
+        roomIndex >= 0 && (uint32_t) roomIndex < runner->dataWin->room.count && instances != nullptr && globals != nullptr &&
+        JsonReader_arrayLength(instances) >= 0 && JsonReader_arrayLength(instances) <= 100000;
+    if (!valid) {JsonReader_free(root); return false;}
+
+    Runner_reset(runner);
+    Runner_initFirstRoom(runner);
+    if (runner->currentRoomIndex != roomIndex) {
+        runner->pendingRoom = roomIndex;
+        Runner_handlePendingRoomChange(runner);
+    }
+    clearCheckpointInstances(runner);
+    IntRValueHashMap_freeAllValues(&runner->vmContext->globalScopeInstance->selfVars);
+    int32_t remainingCells = 100000;
+    valid = restoreCheckpointVariables(runner->vmContext, runner->vmContext->globalScopeInstance, globals, &remainingCells);
+    for (int i = 0; valid && i < JsonReader_arrayLength(instances); i++) {
+        valid = restoreCheckpointInstance(runner, JsonReader_getArrayElement(instances, i), &remainingCells);
+    }
+    if (valid) runner->frameCount = frame;
+    JsonReader_free(root);
+    return valid;
 }
 
 void Runner_free(Runner* runner) {

@@ -1,0 +1,61 @@
+name: RPG Runtime Release
+
+on:
+  push:
+    tags: ["rpg-runtime-gae2602f1f83c-r*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rpg-runtime-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate release identity
+        run: |
+          set -euo pipefail
+          [[ "$GITHUB_REF_NAME" =~ ^rpg-runtime-gae2602f1f83c-r[1-9][0-9]*(-rc\.[1-9][0-9]*)?$ ]]
+          git fetch --force origin \
+            "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag
+          test "$(git rev-list -n 1 "refs/tags/$GITHUB_REF_NAME")" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch --no-tags origin \
+            '+refs/heads/retrom/gae2602f1f83c:refs/remotes/origin/retrom/gae2602f1f83c'
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/retrom/gae2602f1f83c
+          git merge-base --is-ancestor ae2602f1f83ca70d69b1ca8e66eb336141fe2a16 "$GITHUB_SHA"
+          test -z "$(git rev-list --min-parents=2 ae2602f1f83ca70d69b1ca8e66eb336141fe2a16.."$GITHUB_SHA")"
+          python3 .github/rpg-runtime/verify-source.py
+          python3 tests/test_retrom_web_host.py
+      - name: Build Web assets
+        run: .github/rpg-runtime/build-web.sh "$RUNNER_TEMP/rpg-runtime-output"
+      - name: Validate and describe assets
+        run: |
+          python3 .github/rpg-runtime/verify-release.py \
+            --output "$RUNNER_TEMP/rpg-runtime-output" \
+            --repository "https://github.com/$GITHUB_REPOSITORY" \
+            --tag "$GITHUB_REF_NAME" \
+            --commit "$GITHUB_SHA"
+      - name: Create immutable-tag release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-rc.* ]]; then prerelease+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" "${prerelease[@]}" \
+            --verify-tag --target "$GITHUB_SHA" \
+            --title "Butterscotch Web $GITHUB_REF_NAME" --generate-notes \
+            "$RUNNER_TEMP/rpg-runtime-output/butterscotch.mjs" \
+            "$RUNNER_TEMP/rpg-runtime-output/butterscotch.wasm" \
+            "$RUNNER_TEMP/rpg-runtime-output/butterscotch-meta.mjs" \
+            "$RUNNER_TEMP/rpg-runtime-output/butterscotch-meta.wasm" \
+            "$RUNNER_TEMP/rpg-runtime-output/LICENSE" \
+            "$RUNNER_TEMP/rpg-runtime-output/rpg-runtime-release.json"
