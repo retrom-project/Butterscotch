@@ -14,6 +14,7 @@ class RetromWebHostTests(unittest.TestCase):
     def setUp(self) -> None:
         self.source = (ROOT / "src/web/main.c").read_text(encoding="utf-8")
         self.cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.release_workflow = (ROOT / ".github/workflows/rpg-runtime-release.yml").read_text(encoding="utf-8")
 
     def test_web_gamepads_are_sampled_at_the_runner_frame_boundary(self) -> None:
         loop = self.source.index("while (!gRunner->shouldExit)")
@@ -46,6 +47,10 @@ class RetromWebHostTests(unittest.TestCase):
         self.assertIn("gLoopPaused && gCheckpointAvailable", self.source)
         self.assertIn('memcmp(bytes, "BSCP", 4) != 0', self.source)
         self.assertIn("Runner_restoreStateJson(gRunner, json)", self.source)
+
+    def test_release_workflow_supports_immutable_integration_candidates(self) -> None:
+        self.assertIn("(-rc\\.[1-9][0-9]*)?", self.release_workflow)
+        self.assertIn("prerelease+=(--prerelease)", self.release_workflow)
 
 
 if __name__ == "__main__":

@@ -22,7 +22,7 @@ jobs:
       - name: Validate release identity
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF_NAME" =~ ^rpg-runtime-gae2602f1f83c-r[1-9][0-9]*$ ]]
+          [[ "$GITHUB_REF_NAME" =~ ^rpg-runtime-gae2602f1f83c-r[1-9][0-9]*(-rc\.[1-9][0-9]*)?$ ]]
           git fetch --force origin \
             "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag
@@ -48,7 +48,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          prerelease=()
+          if [[ "$GITHUB_REF_NAME" == *-rc.* ]]; then prerelease+=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" "${prerelease[@]}" \
             --verify-tag --target "$GITHUB_SHA" \
             --title "Butterscotch Web $GITHUB_REF_NAME" --generate-notes \
             "$RUNNER_TEMP/rpg-runtime-output/butterscotch.mjs" \
