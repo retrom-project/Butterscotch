@@ -38,6 +38,7 @@ void platformLog(const logType type, const char *format, va_list va) {
             out = stdout;
             break;
         case LOG_TYPE_WARNING:
+            out = stdout;
             fputs("Warning: ", out);
             break;
         case LOG_TYPE_ERROR:
