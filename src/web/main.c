@@ -1,6 +1,7 @@
 #include "stdio_compat.h"
 #include "string_compat.h"
 #include <errno.h>
+#include <pthread.h>
 #include <sys/stat.h>
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -18,6 +19,12 @@ static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = 0;
 static Runner* gRunner;
 static WebAudioSystem* gWebAudio = nullptr;
 static int32_t gAudioSampleRate = 48000;
+static pthread_mutex_t gHostMutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t gHostCondition = PTHREAD_COND_INITIALIZER;
+static bool gHostPaused = false;
+static bool gGamepadConnected[MAX_GAMEPADS] = {false};
+static float gGamepadButtons[MAX_GAMEPADS][GP_BUTTON_COUNT] = {{0}};
+static float gGamepadAxes[MAX_GAMEPADS][GP_AXIS_COUNT] = {{0}};
 
 uint8_t keyDown[GML_KEY_COUNT] = {0};
 uint8_t keyUp[GML_KEY_COUNT] = {0};
@@ -71,6 +78,76 @@ int getKeyCount() {
     return GML_KEY_COUNT;
 }
 
+void setRunnerPaused(int32_t paused) {
+    pthread_mutex_lock(&gHostMutex);
+    gHostPaused = paused != 0;
+    pthread_cond_broadcast(&gHostCondition);
+    pthread_mutex_unlock(&gHostMutex);
+}
+
+void setGamepadConnected(int32_t device, int32_t connected) {
+    if (device < 0 || device >= MAX_GAMEPADS) return;
+    pthread_mutex_lock(&gHostMutex);
+    gGamepadConnected[device] = connected != 0;
+    if (!gGamepadConnected[device]) {
+        memset(gGamepadButtons[device], 0, sizeof(gGamepadButtons[device]));
+        memset(gGamepadAxes[device], 0, sizeof(gGamepadAxes[device]));
+    }
+    pthread_mutex_unlock(&gHostMutex);
+}
+
+void setGamepadButton(int32_t device, int32_t button, float value) {
+    if (device < 0 || device >= MAX_GAMEPADS || button < 0 || button >= GP_BUTTON_COUNT) return;
+    if (value < 0.0f) value = 0.0f;
+    if (value > 1.0f) value = 1.0f;
+    pthread_mutex_lock(&gHostMutex);
+    gGamepadButtons[device][button] = value;
+    pthread_mutex_unlock(&gHostMutex);
+}
+
+void setGamepadAxis(int32_t device, int32_t axis, float value) {
+    if (device < 0 || device >= MAX_GAMEPADS || axis < 0 || axis >= GP_AXIS_COUNT) return;
+    if (value < -1.0f) value = -1.0f;
+    if (value > 1.0f) value = 1.0f;
+    pthread_mutex_lock(&gHostMutex);
+    gGamepadAxes[device][axis] = value;
+    pthread_mutex_unlock(&gHostMutex);
+}
+
+static void waitWhilePaused(void) {
+    pthread_mutex_lock(&gHostMutex);
+    while (gHostPaused && gRunner != nullptr && !gRunner->shouldExit) {
+        pthread_cond_wait(&gHostCondition, &gHostMutex);
+    }
+    pthread_mutex_unlock(&gHostMutex);
+}
+
+static void updateGamepads(RunnerGamepadState* gamepads) {
+    RunnerGamepad_beginFrame(gamepads);
+    pthread_mutex_lock(&gHostMutex);
+    for (int device = 0; device < MAX_GAMEPADS; device++) {
+        GamepadSlot* slot = &gamepads->slots[device];
+        memcpy(slot->buttonDownPrev, slot->buttonDown, sizeof(slot->buttonDown));
+        slot->connected = gGamepadConnected[device];
+        if (!slot->connected) {
+            memset(slot->buttonDown, 0, sizeof(slot->buttonDown));
+            memset(slot->buttonValue, 0, sizeof(slot->buttonValue));
+            memset(slot->axisValue, 0, sizeof(slot->axisValue));
+            continue;
+        }
+        gamepads->connectedCount++;
+        for (int button = 0; button < GP_BUTTON_COUNT; button++) {
+            float value = gGamepadButtons[device][button];
+            slot->buttonValue[button] = value;
+            slot->buttonDown[button] = value >= slot->triggerThreshold;
+            slot->buttonPressed[button] = slot->buttonDown[button] && !slot->buttonDownPrev[button];
+            slot->buttonReleased[button] = !slot->buttonDown[button] && slot->buttonDownPrev[button];
+        }
+        memcpy(slot->axisValue, gGamepadAxes[device], sizeof(slot->axisValue));
+    }
+    pthread_mutex_unlock(&gHostMutex);
+}
+
 int main() {
     logInfo("Howdy! Loritta is so cute! lol\n");
     emscripten_exit_with_live_runtime();
@@ -114,11 +191,14 @@ void* loop() {
 
     gRunner->gameStartTime = nowNanos();
     while (!gRunner->shouldExit) {
+        waitWhilePaused();
+        if (gRunner->shouldExit) break;
         double frameStartMs = emscripten_get_now();
         gRunner->deltaTime = (frameStartMs - lastFrameStartMs) * 1000.0;
         lastFrameStartMs = frameStartMs;
 
         RunnerKeyboard_beginFrame(gRunner->keyboard);
+        updateGamepads(gRunner->gamepads);
 
         // Process inputs
         repeat(GML_KEY_COUNT, i) {
@@ -192,6 +272,13 @@ void* loop() {
     DataWin* dataWin = gRunner->dataWin;
     VMContext* vm = gRunner->vmContext;
     Runner_free(gRunner);
+    pthread_mutex_lock(&gHostMutex);
+    gRunner = nullptr;
+    gHostPaused = false;
+    memset(gGamepadConnected, 0, sizeof(gGamepadConnected));
+    memset(gGamepadButtons, 0, sizeof(gGamepadButtons));
+    memset(gGamepadAxes, 0, sizeof(gGamepadAxes));
+    pthread_mutex_unlock(&gHostMutex);
     VM_free(vm);
     DataWin_free(dataWin);
 
@@ -307,6 +394,8 @@ void startRunner(const char* gamePath, const char* savesPath) {
     // Initialize the first room and fire Game Start / Room Start events
     Runner_initFirstRoom(runner);
 
+    MAIN_THREAD_EM_ASM({ postMessage({ type: 'runnerReady' }); });
+
     // Start a new thread
     pthread_t tid;
     pthread_create(&tid, NULL, loop, NULL);
@@ -315,5 +404,9 @@ void startRunner(const char* gamePath, const char* savesPath) {
 
 void stopRunner() {
     logInfo("Marked runner to exit!\n");
-    gRunner->shouldExit = true;
+    pthread_mutex_lock(&gHostMutex);
+    if (gRunner != nullptr) gRunner->shouldExit = true;
+    gHostPaused = false;
+    pthread_cond_broadcast(&gHostCondition);
+    pthread_mutex_unlock(&gHostMutex);
 }

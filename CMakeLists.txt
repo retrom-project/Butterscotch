@@ -476,7 +476,7 @@ elseif(PLATFORM STREQUAL "web")
             "-sENVIRONMENT=worker"
             "-sWASMFS=1"
             "-sEXPORTED_RUNTIME_METHODS=['HEAP8', 'HEAPU8', 'HEAPF32', 'ccall', 'cwrap', 'specialHTMLTargets', 'UTF8ToString']"
-            "-sEXPORTED_FUNCTIONS=['_main', '_mountOpfs', '_startRunner', '_stopRunner', '_malloc', '_free', '_getKeyDownPtr', '_getKeyUpPtr', '_getKeyCount', '_setAudioSampleRate', '_pullAudioFrames']"
+            "-sEXPORTED_FUNCTIONS=['_main', '_mountOpfs', '_startRunner', '_stopRunner', '_setRunnerPaused', '_setGamepadConnected', '_setGamepadButton', '_setGamepadAxis', '_malloc', '_free', '_getKeyDownPtr', '_getKeyUpPtr', '_getKeyCount', '_setAudioSampleRate', '_pullAudioFrames']"
             "-sOFFSCREENCANVAS_SUPPORT=1"
             "-sOFFSCREEN_FRAMEBUFFER=1"
             "-sMIN_WEBGL_VERSION=2"
@@ -485,6 +485,7 @@ elseif(PLATFORM STREQUAL "web")
             "-sALLOW_MEMORY_GROWTH"
             "-sSHARED_MEMORY=1"
             "-sPTHREAD_POOL_SIZE=4"
+            "-sEXIT_RUNTIME=1"
             "-pthread"
     )
 
