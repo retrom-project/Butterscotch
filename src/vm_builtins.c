@@ -7215,6 +7215,7 @@ static RValue builtin_ini_close(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE
     if (runner->currentIni == nullptr) {
         free(runner->currentIniPath);
         runner->currentIniPath = nullptr;
+        runner->currentIniDirty = false;
         // No ini open = empty
         return RValue_makeOwnedString(safeStrdup(""));
     }
@@ -7227,6 +7228,7 @@ static RValue builtin_ini_close(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE
         FileSystem* fs = runner->fileSystem;
         fs->vtable->writeFileText(fs, runner->currentIniPath, serialized);
     }
+    runner->currentIniDirty = false;
 
     // Move to cache instead of freeing
     discardIniCache(runner);
