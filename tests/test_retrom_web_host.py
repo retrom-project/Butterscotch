@@ -36,6 +36,16 @@ class RetromWebHostTests(unittest.TestCase):
         self.assertEqual(self.source.count("type: 'runnerReady'"), 1)
         self.assertEqual(self.source.count("type: 'runnerExit'"), 1)
 
+    def test_web_warnings_do_not_use_the_browser_error_stream(self) -> None:
+        start = self.source.index("void platformLog")
+        end = self.source.index("// Configures the sample rate", start)
+        logger = self.source[start:end]
+        warning = logger.index("case LOG_TYPE_WARNING:")
+        error = logger.index("case LOG_TYPE_ERROR:")
+        warning_body = logger[warning:error]
+        self.assertIn("out = stdout;", warning_body)
+        self.assertIn('fputs("Warning: ", out);', warning_body)
+
     def test_web_exports_are_stable(self) -> None:
         for name in (
             "_setRunnerPaused", "_setGamepadConnected",
