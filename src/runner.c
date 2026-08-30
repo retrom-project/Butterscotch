@@ -1843,42 +1843,9 @@ static void initRoom(Runner* runner, int32_t roomIndex) {
     logInfo("Runner: Room loaded: %s (room %d) with %d instances\n", room->name, roomIndex, (int) arrlen(runner->instances));
 }
 
-// Cleans up the runner state, used when freeing the Runner or when restarting the Runner
-static void cleanupState(Runner* runner) {
-    // Drop VM-side RValue holders (globals, stack, call frames) BEFORE freeing any Instance memory. This way any RVALUE_STRUCT refs decrement against still-live struct memory; otherwise we'd free a struct here and then have VM_free's later VM_reset try to decRef a dangling pointer.
-    if (runner->vmContext != nullptr) {
-        VM_reset(runner->vmContext);
-    }
-
-    // Free all instances
-    repeat(arrlen(runner->instances), i) {
-        hmdel(runner->instancesById, runner->instances[i]->instanceId);
-        Instance_free(runner->instances[i]);
-    }
-    arrfree(runner->instances);
-    runner->instances = nullptr;
-
-    // Empty the per-object lists. We keep the outer instancesByObject array allocated so Runner_reset can be reused; Runner_free releases it.
-    Runner_clearAllObjectLists(runner);
-
-    // Free saved room states
-    if (runner->savedRoomStates != nullptr) {
-        repeat(runner->dataWin->room.count, i) {
-            SavedRoomState* state = &runner->savedRoomStates[i];
-            int32_t savedCount = (int32_t) arrlen(state->instances);
-            repeat(savedCount, j) {
-                hmdel(runner->instancesById, state->instances[j]->instanceId);
-                Instance_free(state->instances[j]);
-            }
-            arrfree(state->instances);
-            hmfree(state->tileLayerMap);
-            freeRuntimeLayersArray(&state->runtimeLayers);
-        }
-        free(runner->savedRoomStates);
-    }
-    runner->savedRoomStates = nullptr;
-
-    // Drain ds_map/ds_list pools BEFORE bulk-freeing struct instances. Their RValue entries may hold RVALUE_STRUCT refs to structs in runner->structInstances, and RValue_free would deref freed memory if the structs are gone.
+// Drain data-structure pools before freeing struct instances. Their RValues may
+// still own references to structs tracked by runner->structInstances.
+static void clearCheckpointDataStructures(Runner* runner) {
     {
     repeat((int32_t) arrlen(runner->dsMapPool), i) {
         DsMapEntry* map = runner->dsMapPool[i];
@@ -1954,6 +1921,44 @@ static void cleanupState(Runner* runner) {
     }
     arrfree(runner->dsGridPool);
     runner->dsGridPool = nullptr;
+}
+
+// Cleans up the runner state, used when freeing the Runner or when restarting the Runner
+static void cleanupState(Runner* runner) {
+    // Drop VM-side RValue holders (globals, stack, call frames) BEFORE freeing any Instance memory. This way any RVALUE_STRUCT refs decrement against still-live struct memory; otherwise we'd free a struct here and then have VM_free's later VM_reset try to decRef a dangling pointer.
+    if (runner->vmContext != nullptr) {
+        VM_reset(runner->vmContext);
+    }
+
+    // Free all instances
+    repeat(arrlen(runner->instances), i) {
+        hmdel(runner->instancesById, runner->instances[i]->instanceId);
+        Instance_free(runner->instances[i]);
+    }
+    arrfree(runner->instances);
+    runner->instances = nullptr;
+
+    // Empty the per-object lists. We keep the outer instancesByObject array allocated so Runner_reset can be reused; Runner_free releases it.
+    Runner_clearAllObjectLists(runner);
+
+    // Free saved room states
+    if (runner->savedRoomStates != nullptr) {
+        repeat(runner->dataWin->room.count, i) {
+            SavedRoomState* state = &runner->savedRoomStates[i];
+            int32_t savedCount = (int32_t) arrlen(state->instances);
+            repeat(savedCount, j) {
+                hmdel(runner->instancesById, state->instances[j]->instanceId);
+                Instance_free(state->instances[j]);
+            }
+            arrfree(state->instances);
+            hmfree(state->tileLayerMap);
+            freeRuntimeLayersArray(&state->runtimeLayers);
+        }
+        free(runner->savedRoomStates);
+    }
+    runner->savedRoomStates = nullptr;
+
+    clearCheckpointDataStructures(runner);
 
     repeat((int32_t) arrlen(runner->callLaterEntries), i) {
         RValue_free(&runner->callLaterEntries[i].callback);
@@ -4366,6 +4371,76 @@ static bool checkpointVariablesSupported(const IntRValueHashMap* variables, int3
     return true;
 }
 
+static bool checkpointConsumeCells(int64_t count, int32_t* remainingCells) {
+    if (count < 0 || count > *remainingCells) return false;
+    *remainingCells -= (int32_t) count;
+    return true;
+}
+
+static bool checkpointDataStructuresSupported(Runner* runner, int32_t* remainingCells) {
+    if (!checkpointConsumeCells((int64_t) arrlen(runner->dsMapPool), remainingCells)) return false;
+    repeat(arrlen(runner->dsMapPool), i) {
+        DsMapEntry* map = runner->dsMapPool[i];
+        if (!checkpointConsumeCells((int64_t) shlen(map), remainingCells)) return false;
+        repeat(shlen(map), j) {
+            if (map[j].key == nullptr || !checkpointRValueSupported(map[j].value, 0, remainingCells)) return false;
+        }
+    }
+
+    if (!checkpointConsumeCells((int64_t) arrlen(runner->dsListPool), remainingCells)) return false;
+    repeat(arrlen(runner->dsListPool), i) {
+        DsList* list = &runner->dsListPool[i];
+        if (list->freed) continue;
+        if (!checkpointConsumeCells((int64_t) arrlen(list->items), remainingCells)) return false;
+        repeat(arrlen(list->items), j) {
+            if (!checkpointRValueSupported(list->items[j], 0, remainingCells)) return false;
+        }
+    }
+
+    if (!checkpointConsumeCells((int64_t) arrlen(runner->dsQueuePool), remainingCells)) return false;
+    repeat(arrlen(runner->dsQueuePool), i) {
+        DsQueue* queue = &runner->dsQueuePool[i];
+        if (queue->freed) continue;
+        if (!checkpointConsumeCells((int64_t) arrlen(queue->items), remainingCells)) return false;
+        repeat(arrlen(queue->items), j) {
+            if (!checkpointRValueSupported(queue->items[j], 0, remainingCells)) return false;
+        }
+    }
+
+    if (!checkpointConsumeCells((int64_t) arrlen(runner->dsStackPool), remainingCells)) return false;
+    repeat(arrlen(runner->dsStackPool), i) {
+        DsStack* stack = &runner->dsStackPool[i];
+        if (stack->freed) continue;
+        if (!checkpointConsumeCells((int64_t) arrlen(stack->items), remainingCells)) return false;
+        repeat(arrlen(stack->items), j) {
+            if (!checkpointRValueSupported(stack->items[j], 0, remainingCells)) return false;
+        }
+    }
+
+    if (!checkpointConsumeCells((int64_t) arrlen(runner->dsPriorityPool), remainingCells)) return false;
+    repeat(arrlen(runner->dsPriorityPool), i) {
+        DsPriority* priority = &runner->dsPriorityPool[i];
+        if (priority->freed) continue;
+        if (!checkpointConsumeCells((int64_t) arrlen(priority->items), remainingCells)) return false;
+        repeat(arrlen(priority->items), j) {
+            if (!checkpointRValueSupported(priority->items[j].item, 0, remainingCells)) return false;
+        }
+    }
+
+    if (!checkpointConsumeCells((int64_t) arrlen(runner->dsGridPool), remainingCells)) return false;
+    repeat(arrlen(runner->dsGridPool), i) {
+        DsGrid* grid = &runner->dsGridPool[i];
+        if (grid->freed) continue;
+        if (grid->width < 0 || grid->height < 0) return false;
+        int64_t count = (int64_t) grid->width * (int64_t) grid->height;
+        if (!checkpointConsumeCells(count, remainingCells)) return false;
+        repeat(count, j) {
+            if (!checkpointRValueSupported(grid->items[j], 0, remainingCells)) return false;
+        }
+    }
+    return true;
+}
+
 RunnerCheckpointStatus Runner_checkpointStatus(Runner* runner) {
     if (runner == nullptr || runner->currentRoom == nullptr) return RUNNER_CHECKPOINT_NO_ACTIVE_ROOM;
     if (runner->pendingRoom != -1) return RUNNER_CHECKPOINT_TRANSITION_ACTIVE;
@@ -4377,12 +4452,6 @@ RunnerCheckpointStatus Runner_checkpointStatus(Runner* runner) {
     }
     repeat(MAX_OPEN_TEXT_FILES, i) if (runner->openTextFiles[i].isOpen) return RUNNER_CHECKPOINT_FILE_OPEN;
     repeat(MAX_OPEN_BINARY_FILES, i) if (runner->openBinaryFiles[i].isOpen) return RUNNER_CHECKPOINT_FILE_OPEN;
-    repeat(arrlen(runner->dsMapPool), i) if (runner->dsMapPool[i] != nullptr && shlen(runner->dsMapPool[i]) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
-    repeat(arrlen(runner->dsListPool), i) if (!runner->dsListPool[i].freed && arrlen(runner->dsListPool[i].items) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
-    repeat(arrlen(runner->dsQueuePool), i) if (!runner->dsQueuePool[i].freed && arrlen(runner->dsQueuePool[i].items) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
-    repeat(arrlen(runner->dsStackPool), i) if (!runner->dsStackPool[i].freed && arrlen(runner->dsStackPool[i].items) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
-    repeat(arrlen(runner->dsPriorityPool), i) if (!runner->dsPriorityPool[i].freed && arrlen(runner->dsPriorityPool[i].items) > 0) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
-    repeat(arrlen(runner->dsGridPool), i) if (!runner->dsGridPool[i].freed) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
     repeat(arrlen(runner->gmlBufferPool), i) if (runner->gmlBufferPool[i].isValid) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
     repeat(arrlen(runner->mpGridPool), i) if (runner->mpGridPool[i].inUse) return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE;
     repeat(runner->dataWin->room.count, i) {
@@ -4390,6 +4459,7 @@ RunnerCheckpointStatus Runner_checkpointStatus(Runner* runner) {
             runner->savedRoomStates[i].initialized) return RUNNER_CHECKPOINT_PERSISTENT_ROOM_STATE;
     }
     int32_t remainingCells = 100000;
+    if (!checkpointDataStructuresSupported(runner, &remainingCells)) return RUNNER_CHECKPOINT_VALUE_UNSUPPORTED;
     if (!checkpointVariablesSupported(&runner->vmContext->globalScopeInstance->selfVars, &remainingCells)) return RUNNER_CHECKPOINT_VALUE_UNSUPPORTED;
     repeat(arrlen(runner->instances), i) {
         Instance* instance = runner->instances[i];
@@ -4456,6 +4526,96 @@ static void writeRValueJson(JsonWriter* w, RValue val) {
     }
 }
 
+static void writeCheckpointRValueArray(JsonWriter* w, RValue* values, int32_t count) {
+    JsonWriter_beginArray(w);
+    repeat(count, i) writeRValueJson(w, values[i]);
+    JsonWriter_endArray(w);
+}
+
+static void writeCheckpointDataStructures(JsonWriter* w, Runner* runner) {
+    JsonWriter_key(w, "dataStructures");
+    JsonWriter_beginObject(w);
+
+    JsonWriter_key(w, "maps");
+    JsonWriter_beginArray(w);
+    repeat(arrlen(runner->dsMapPool), i) {
+        DsMapEntry* map = runner->dsMapPool[i];
+        JsonWriter_beginObject(w);
+        repeat(shlen(map), j) {
+            JsonWriter_key(w, map[j].key);
+            writeRValueJson(w, map[j].value);
+        }
+        JsonWriter_endObject(w);
+    }
+    JsonWriter_endArray(w);
+
+    JsonWriter_key(w, "lists");
+    JsonWriter_beginArray(w);
+    repeat(arrlen(runner->dsListPool), i) {
+        DsList* list = &runner->dsListPool[i];
+        if (list->freed) JsonWriter_null(w);
+        else writeCheckpointRValueArray(w, list->items, (int32_t) arrlen(list->items));
+    }
+    JsonWriter_endArray(w);
+
+    JsonWriter_key(w, "queues");
+    JsonWriter_beginArray(w);
+    repeat(arrlen(runner->dsQueuePool), i) {
+        DsQueue* queue = &runner->dsQueuePool[i];
+        if (queue->freed) JsonWriter_null(w);
+        else writeCheckpointRValueArray(w, queue->items, (int32_t) arrlen(queue->items));
+    }
+    JsonWriter_endArray(w);
+
+    JsonWriter_key(w, "stacks");
+    JsonWriter_beginArray(w);
+    repeat(arrlen(runner->dsStackPool), i) {
+        DsStack* stack = &runner->dsStackPool[i];
+        if (stack->freed) JsonWriter_null(w);
+        else writeCheckpointRValueArray(w, stack->items, (int32_t) arrlen(stack->items));
+    }
+    JsonWriter_endArray(w);
+
+    JsonWriter_key(w, "priorities");
+    JsonWriter_beginArray(w);
+    repeat(arrlen(runner->dsPriorityPool), i) {
+        DsPriority* priority = &runner->dsPriorityPool[i];
+        if (priority->freed) {
+            JsonWriter_null(w);
+            continue;
+        }
+        JsonWriter_beginArray(w);
+        repeat(arrlen(priority->items), j) {
+            JsonWriter_beginObject(w);
+            JsonWriter_propertyInt(w, "priority", priority->items[j].depth);
+            JsonWriter_key(w, "value");
+            writeRValueJson(w, priority->items[j].item);
+            JsonWriter_endObject(w);
+        }
+        JsonWriter_endArray(w);
+    }
+    JsonWriter_endArray(w);
+
+    JsonWriter_key(w, "grids");
+    JsonWriter_beginArray(w);
+    repeat(arrlen(runner->dsGridPool), i) {
+        DsGrid* grid = &runner->dsGridPool[i];
+        if (grid->freed) {
+            JsonWriter_null(w);
+            continue;
+        }
+        JsonWriter_beginObject(w);
+        JsonWriter_propertyInt(w, "width", grid->width);
+        JsonWriter_propertyInt(w, "height", grid->height);
+        JsonWriter_key(w, "values");
+        writeCheckpointRValueArray(w, grid->items, grid->width * grid->height);
+        JsonWriter_endObject(w);
+    }
+    JsonWriter_endArray(w);
+
+    JsonWriter_endObject(w);
+}
+
 char* Runner_dumpStateJson(Runner* runner) {
     DataWin* dataWin = runner->dataWin;
     int32_t instanceCount = (int32_t) arrlen(runner->instances);
@@ -4464,7 +4624,7 @@ char* Runner_dumpStateJson(Runner* runner) {
 
     JsonWriter_beginObject(&w);
 
-    JsonWriter_propertyInt(&w, "checkpointSchemaVersion", 1);
+    JsonWriter_propertyInt(&w, "checkpointSchemaVersion", 2);
 
     JsonWriter_propertyInt(&w, "frame", runner->frameCount);
 
@@ -4474,6 +4634,8 @@ char* Runner_dumpStateJson(Runner* runner) {
     JsonWriter_propertyString(&w, "name", runner->currentRoom->name);
     JsonWriter_propertyInt(&w, "index", runner->currentRoomIndex);
     JsonWriter_endObject(&w);
+
+    writeCheckpointDataStructures(&w, runner);
 
     // Instances
     JsonWriter_key(&w, "instances");
@@ -4718,6 +4880,184 @@ static bool checkpointRValueFromJson(VMContext* vm, const JsonValue* value, int3
     return false;
 }
 
+static void freeCheckpointRValueArray(RValue** values) {
+    repeat(arrlen(*values), i) RValue_free(&(*values)[i]);
+    arrfree(*values);
+    *values = nullptr;
+}
+
+static bool restoreCheckpointRValueArray(
+    VMContext* vm, const JsonValue* source, int32_t* remainingCells, RValue** result
+) {
+    if (!JsonReader_isArray(source)) return false;
+    int32_t count = JsonReader_arrayLength(source);
+    if (!checkpointConsumeCells(count, remainingCells)) return false;
+    repeat(count, i) {
+        RValue value = RValue_makeUndefined();
+        if (!checkpointRValueFromJson(vm, JsonReader_getArrayElement(source, i), 0, remainingCells, &value)) {
+            freeCheckpointRValueArray(result);
+            return false;
+        }
+        arrput(*result, value);
+    }
+    return true;
+}
+
+static bool restoreCheckpointMaps(
+    Runner* runner, const JsonValue* maps, int32_t* remainingCells
+) {
+    int32_t count = JsonReader_arrayLength(maps);
+    if (!checkpointConsumeCells(count, remainingCells)) return false;
+    repeat(count, i) {
+        JsonValue* source = JsonReader_getArrayElement(maps, i);
+        if (!JsonReader_isObject(source) ||
+            !checkpointConsumeCells(JsonReader_objectLength(source), remainingCells)) return false;
+        DsMapEntry* map = nullptr;
+        arrput(runner->dsMapPool, map);
+        DsMapEntry** target = &runner->dsMapPool[arrlen(runner->dsMapPool) - 1];
+        repeat(JsonReader_objectLength(source), j) {
+            const char* key = JsonReader_getJsonKeyByIndex(source, j);
+            if (key == nullptr || shgeti(*target, key) >= 0) return false;
+            RValue value = RValue_makeUndefined();
+            if (!checkpointRValueFromJson(
+                runner->vmContext, JsonReader_getJsonValueByIndex(source, j), 0, remainingCells, &value
+            )) return false;
+            shput(*target, safeStrdup(key), value);
+        }
+    }
+    return true;
+}
+
+static bool restoreCheckpointLists(
+    Runner* runner, const JsonValue* lists, int32_t* remainingCells
+) {
+    int32_t count = JsonReader_arrayLength(lists);
+    if (!checkpointConsumeCells(count, remainingCells)) return false;
+    repeat(count, i) {
+        JsonValue* source = JsonReader_getArrayElement(lists, i);
+        DsList list = {0};
+        list.freed = JsonReader_isNull(source);
+        if (!list.freed && !restoreCheckpointRValueArray(
+            runner->vmContext, source, remainingCells, &list.items
+        )) return false;
+        arrput(runner->dsListPool, list);
+    }
+    return true;
+}
+
+static bool restoreCheckpointQueues(
+    Runner* runner, const JsonValue* queues, int32_t* remainingCells
+) {
+    int32_t count = JsonReader_arrayLength(queues);
+    if (!checkpointConsumeCells(count, remainingCells)) return false;
+    repeat(count, i) {
+        JsonValue* source = JsonReader_getArrayElement(queues, i);
+        DsQueue queue = {0};
+        queue.freed = JsonReader_isNull(source);
+        if (!queue.freed && !restoreCheckpointRValueArray(
+            runner->vmContext, source, remainingCells, &queue.items
+        )) return false;
+        arrput(runner->dsQueuePool, queue);
+    }
+    return true;
+}
+
+static bool restoreCheckpointStacks(
+    Runner* runner, const JsonValue* stacks, int32_t* remainingCells
+) {
+    int32_t count = JsonReader_arrayLength(stacks);
+    if (!checkpointConsumeCells(count, remainingCells)) return false;
+    repeat(count, i) {
+        JsonValue* source = JsonReader_getArrayElement(stacks, i);
+        DsStack stack = {0};
+        stack.freed = JsonReader_isNull(source);
+        if (!stack.freed && !restoreCheckpointRValueArray(
+            runner->vmContext, source, remainingCells, &stack.items
+        )) return false;
+        arrput(runner->dsStackPool, stack);
+    }
+    return true;
+}
+
+static bool restoreCheckpointPriorities(
+    Runner* runner, const JsonValue* priorities, int32_t* remainingCells
+) {
+    int32_t count = JsonReader_arrayLength(priorities);
+    if (!checkpointConsumeCells(count, remainingCells)) return false;
+    repeat(count, i) {
+        JsonValue* source = JsonReader_getArrayElement(priorities, i);
+        DsPriority priority = {0};
+        priority.freed = JsonReader_isNull(source);
+        arrput(runner->dsPriorityPool, priority);
+        DsPriority* target = &runner->dsPriorityPool[arrlen(runner->dsPriorityPool) - 1];
+        if (!priority.freed) {
+            int32_t itemCount = JsonReader_arrayLength(source);
+            if (!checkpointConsumeCells(itemCount, remainingCells)) return false;
+            repeat(itemCount, j) {
+                JsonValue* item = JsonReader_getArrayElement(source, j);
+                JsonValue* valueSource = item == nullptr ? nullptr : JsonReader_getJsonValueByKey(item, "value");
+                DsPriorityItem restored = {0};
+                if (!checkpointInteger(item, "priority", &restored.depth) ||
+                    !checkpointRValueFromJson(runner->vmContext, valueSource, 0, remainingCells, &restored.item)) {
+                    return false;
+                }
+                arrput(target->items, restored);
+            }
+        }
+    }
+    return true;
+}
+
+static bool restoreCheckpointGrids(
+    Runner* runner, const JsonValue* grids, int32_t* remainingCells
+) {
+    int32_t count = JsonReader_arrayLength(grids);
+    if (!checkpointConsumeCells(count, remainingCells)) return false;
+    repeat(count, i) {
+        JsonValue* source = JsonReader_getArrayElement(grids, i);
+        DsGrid grid = {0};
+        grid.freed = JsonReader_isNull(source);
+        arrput(runner->dsGridPool, grid);
+        DsGrid* target = &runner->dsGridPool[arrlen(runner->dsGridPool) - 1];
+        if (!grid.freed) {
+            JsonValue* values = checkpointField(source, "values", JSON_ARRAY);
+            if (!checkpointInteger(source, "width", &target->width) || target->width < 0 ||
+                !checkpointInteger(source, "height", &target->height) || target->height < 0 || values == nullptr) return false;
+            int64_t cellCount = (int64_t) target->width * (int64_t) target->height;
+            if (cellCount != JsonReader_arrayLength(values) ||
+                !checkpointConsumeCells(cellCount, remainingCells)) return false;
+            target->items = cellCount == 0 ? nullptr : (RValue *) safeCalloc((size_t) cellCount, sizeof(RValue));
+            repeat(cellCount, j) {
+                if (!checkpointRValueFromJson(
+                    runner->vmContext, JsonReader_getArrayElement(values, (int32_t) j), 0, remainingCells, &target->items[j]
+                )) return false;
+            }
+        }
+    }
+    return true;
+}
+
+static bool restoreCheckpointDataStructures(
+    Runner* runner, const JsonValue* source, int32_t* remainingCells
+) {
+    JsonValue* maps = checkpointField(source, "maps", JSON_ARRAY);
+    JsonValue* lists = checkpointField(source, "lists", JSON_ARRAY);
+    JsonValue* queues = checkpointField(source, "queues", JSON_ARRAY);
+    JsonValue* stacks = checkpointField(source, "stacks", JSON_ARRAY);
+    JsonValue* priorities = checkpointField(source, "priorities", JSON_ARRAY);
+    JsonValue* grids = checkpointField(source, "grids", JSON_ARRAY);
+    if (maps == nullptr || lists == nullptr || queues == nullptr || stacks == nullptr ||
+        priorities == nullptr || grids == nullptr) return false;
+    bool valid = restoreCheckpointMaps(runner, maps, remainingCells) &&
+        restoreCheckpointLists(runner, lists, remainingCells) &&
+        restoreCheckpointQueues(runner, queues, remainingCells) &&
+        restoreCheckpointStacks(runner, stacks, remainingCells) &&
+        restoreCheckpointPriorities(runner, priorities, remainingCells) &&
+        restoreCheckpointGrids(runner, grids, remainingCells);
+    if (!valid) clearCheckpointDataStructures(runner);
+    return valid;
+}
+
 static bool restoreCheckpointVariables(VMContext* vm, Instance* target, const JsonValue* object, int32_t* remainingCells) {
     if (!JsonReader_isObject(object)) return false;
     repeat(JsonReader_objectLength(object), i) {
@@ -4827,9 +5167,11 @@ bool Runner_restoreStateJson(Runner* runner, const char* json) {
     JsonValue* room = checkpointField(root, "room", JSON_OBJECT);
     JsonValue* instances = checkpointField(root, "instances", JSON_ARRAY);
     JsonValue* globals = checkpointField(root, "globalVariables", JSON_OBJECT);
-    bool valid = checkpointInteger(root, "checkpointSchemaVersion", &schema) && schema == 1 &&
+    JsonValue* dataStructures = checkpointField(root, "dataStructures", JSON_OBJECT);
+    bool valid = checkpointInteger(root, "checkpointSchemaVersion", &schema) && schema == 2 &&
         checkpointInteger(root, "frame", &frame) && frame >= 0 && checkpointInteger(room, "index", &roomIndex) &&
         roomIndex >= 0 && (uint32_t) roomIndex < runner->dataWin->room.count && instances != nullptr && globals != nullptr &&
+        dataStructures != nullptr &&
         JsonReader_arrayLength(instances) >= 0 && JsonReader_arrayLength(instances) <= 100000;
     if (!valid) {JsonReader_free(root); return false;}
 
@@ -4841,8 +5183,10 @@ bool Runner_restoreStateJson(Runner* runner, const char* json) {
     }
     clearCheckpointInstances(runner);
     IntRValueHashMap_freeAllValues(&runner->vmContext->globalScopeInstance->selfVars);
+    clearCheckpointDataStructures(runner);
     int32_t remainingCells = 100000;
-    valid = restoreCheckpointVariables(runner->vmContext, runner->vmContext->globalScopeInstance, globals, &remainingCells);
+    valid = restoreCheckpointDataStructures(runner, dataStructures, &remainingCells) &&
+        restoreCheckpointVariables(runner->vmContext, runner->vmContext->globalScopeInstance, globals, &remainingCells);
     for (int i = 0; valid && i < JsonReader_arrayLength(instances); i++) {
         valid = restoreCheckpointInstance(runner, JsonReader_getArrayElement(instances, i), &remainingCells);
     }
