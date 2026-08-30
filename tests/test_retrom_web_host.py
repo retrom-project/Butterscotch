@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class RetromWebHostTests(unittest.TestCase):
     def setUp(self) -> None:
         self.source = (ROOT / "src/web/main.c").read_text(encoding="utf-8")
+        self.builtins = (ROOT / "src/vm_builtins.c").read_text(encoding="utf-8")
         self.cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         self.release_workflow = (ROOT / ".github/workflows/rpg-runtime-release.yml").read_text(encoding="utf-8")
         self.build_script = (ROOT / ".github/rpg-runtime/build-web.sh").read_text(encoding="utf-8")
@@ -48,6 +49,13 @@ class RetromWebHostTests(unittest.TestCase):
         self.assertIn("gLoopPaused && gCheckpointAvailable", self.source)
         self.assertIn('memcmp(bytes, "BSCP", 4) != 0', self.source)
         self.assertIn("Runner_restoreStateJson(gRunner, json)", self.source)
+
+    def test_closing_a_dirty_ini_clears_the_transient_checkpoint_blocker(self) -> None:
+        start = self.builtins.index("static RValue builtin_ini_close")
+        end = self.builtins.index("static RValue builtin_ini_read_string", start)
+        close_body = self.builtins[start:end]
+        cache_move = close_body.index("runner->cachedIni = runner->currentIni;")
+        self.assertLess(close_body.index("runner->currentIniDirty = false;"), cache_move)
 
     def test_release_workflow_supports_immutable_integration_candidates(self) -> None:
         self.assertIn("(-rc\\.[1-9][0-9]*)?", self.release_workflow)
