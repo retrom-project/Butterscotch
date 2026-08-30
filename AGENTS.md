@@ -37,6 +37,11 @@ databases, review workflows, credentials, and private games.
 - A stable Web release must support lifecycle ready/exit signals, pause/resume,
   standard browser gamepads, and a bounded checkpoint that restores directly
   in a fresh runtime instance without requiring the game's own load menu.
+- Checkpoint ABI `butterscotch-checkpoint-v2` includes bounded serialization of
+  GameMaker map/list/queue/stack/priority/grid pools and preserves pool IDs.
+  Do not reintroduce a blanket data-structure blocker or label a different wire
+  format as v2; buffers, motion-planning grids, structs and persistent-room
+  snapshots remain explicitly unavailable until they have exact round-trip tests.
 - A core-owned exit must be observable by the host exactly once. Once exited,
   checkpoint creation must fail and all input must be released.
 - Tests use only the repository's redistributable, non-commercial fixtures.
