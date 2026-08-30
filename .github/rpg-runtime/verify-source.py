@@ -35,7 +35,7 @@ def main() -> int:
             r"^rpg-runtime-gae2602f1f83c-r[1-9][0-9]*"
             r"(-rc\.[1-9][0-9]*)?$"
         ),
-        "adapterAbi": "butterscotch-checkpoint-v1",
+        "adapterAbi": "butterscotch-checkpoint-v2",
         "releaseAssets": [
             "butterscotch.mjs", "butterscotch.wasm",
             "butterscotch-meta.mjs", "butterscotch-meta.wasm",

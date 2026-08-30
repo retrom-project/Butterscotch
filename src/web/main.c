@@ -189,7 +189,7 @@ uint8_t* createRunnerCheckpoint(void) {
     gCheckpointSize = (int32_t) jsonSize + CHECKPOINT_HEADER_SIZE;
     gCheckpointBytes = (uint8_t *)safeMalloc((size_t) gCheckpointSize);
     memcpy(gCheckpointBytes, "BSCP", 4);
-    writeUint32LE(gCheckpointBytes + 4, 1);
+    writeUint32LE(gCheckpointBytes + 4, 2);
     writeUint32LE(gCheckpointBytes + 8, (uint32_t) jsonSize);
     memcpy(gCheckpointBytes + CHECKPOINT_HEADER_SIZE, json, jsonSize);
     free(json);
@@ -205,7 +205,7 @@ int32_t restoreRunnerCheckpoint(const uint8_t* bytes, int32_t size) {
     bool allowed = gRunner != nullptr && !gRunner->shouldExit && gLoopPaused;
     pthread_mutex_unlock(&gHostMutex);
     if (!allowed || bytes == nullptr || size < CHECKPOINT_HEADER_SIZE || size > CHECKPOINT_MAX_BYTES ||
-        memcmp(bytes, "BSCP", 4) != 0 || readUint32LE(bytes + 4) != 1 ||
+        memcmp(bytes, "BSCP", 4) != 0 || readUint32LE(bytes + 4) != 2 ||
         readUint32LE(bytes + 8) != (uint32_t) size - CHECKPOINT_HEADER_SIZE) return -1;
     size_t jsonSize = (size_t) size - CHECKPOINT_HEADER_SIZE;
     char* json = (char *)safeMalloc(jsonSize + 1);

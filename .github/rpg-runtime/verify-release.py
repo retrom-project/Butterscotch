@@ -66,7 +66,7 @@ def main() -> int:
         for path in paths
     ]
     metadata = {
-        "adapterAbi": "butterscotch-checkpoint-v1",
+        "adapterAbi": "butterscotch-checkpoint-v2",
         "assets": assets,
         "commit": args.commit,
         "digestPolicy": "OBSERVED_CACHE_INTEGRITY_ONLY",
