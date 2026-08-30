@@ -614,6 +614,65 @@ if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "swi
             ${CMAKE_SOURCE_DIR}/vendor/gamecontrollerdb.txt
             $<TARGET_FILE_DIR:butterscotch>/gamecontrollerdb.txt
     )
+elseif(PLATFORM STREQUAL "retrom-web")
+    if (NOT ENABLE_MODERN_GL)
+        message(FATAL_ERROR "Web requires modern gl!")
+    endif()
+    file(GLOB GL_SOURCES src/gl/*.c src/gl_common/*.c src/image/*.c)
+    target_sources(butterscotch PRIVATE ${GL_SOURCES})
+    target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/gl)
+    target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/gl_common)
+    target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/image)
+
+    # stb_image
+    target_include_directories(butterscotch PUBLIC vendor/stb/image)
+
+    # bzip2
+    target_link_libraries(butterscotch PRIVATE bzip2 stb_ds sha1 stb_vorbis)
+
+    set_target_properties(butterscotch PROPERTIES SUFFIX ".mjs")
+
+    target_link_options(
+            butterscotch
+            PRIVATE
+            "-sMODULARIZE=1"
+            "-sEXPORT_ES6=1"
+            "-sENVIRONMENT=worker"
+            "-sWASMFS=1"
+            "-sEXPORTED_RUNTIME_METHODS=['HEAP8', 'HEAPU8', 'HEAP32', 'HEAPU32', 'HEAPF32', 'ccall', 'cwrap', 'GL', 'specialHTMLTargets', 'UTF8ToString']"
+            "-sEXPORTED_FUNCTIONS=['_main', '_mountOpfs', '_startRunner', '_stopRunner', '_setRunnerPaused', '_setGamepadConnected', '_setGamepadButton', '_setGamepadAxis', '_isRunnerCheckpointAvailable', '_getRunnerCheckpointStatus', '_createRunnerCheckpoint', '_getRunnerCheckpointSize', '_restoreRunnerCheckpoint', '_malloc', '_free', '_getKeyDownPtr', '_getKeyUpPtr', '_getKeyCount', '_setAudioSampleRate', '_pullAudioFrames']"
+            "-sOFFSCREENCANVAS_SUPPORT=1"
+            "-sOFFSCREEN_FRAMEBUFFER=1"
+            "-sMIN_WEBGL_VERSION=2"
+            "-sMAX_WEBGL_VERSION=2"
+            "-sFULL_ES3=1"
+            "-sALLOW_MEMORY_GROWTH"
+            "-sSHARED_MEMORY=1"
+            "-sPTHREAD_POOL_SIZE=4"
+            "-sEXIT_RUNTIME=1"
+            "-pthread"
+    )
+
+    target_compile_options(butterscotch PRIVATE "-pthread")
+elseif(PLATFORM STREQUAL "retrom-web-meta")
+    set_target_properties(butterscotch PROPERTIES
+        SUFFIX ".mjs"
+        OUTPUT_NAME "butterscotch-meta"
+    )
+
+    target_link_libraries(butterscotch PRIVATE stb_ds)
+
+    target_link_options(
+            butterscotch
+            PRIVATE
+            "-sMODULARIZE=1"
+            "-sEXPORT_ES6=1"
+            "-sENVIRONMENT=web"
+            "-sEXPORTED_RUNTIME_METHODS=['HEAPU8', 'ccall', 'cwrap', 'UTF8ToString', 'FS']"
+            "-sEXPORTED_FUNCTIONS=['_main', '_parseDataWin', '_freeDataWin', '_getGameName', '_getGameDisplayName', '_getMajorVersion', '_getMinorVersion', '_getRelease', '_getBuild', '_getDefaultWindowWidth', '_getDefaultWindowHeight', '_malloc', '_free']"
+            "-sALLOW_MEMORY_GROWTH=1"
+            "-sFORCE_FILESYSTEM=1"
+    )
 elseif(PLATFORM STREQUAL "android")
     if (NOT ENABLE_MODERN_GL)
         message(FATAL_ERROR "Android requires modern gl!")

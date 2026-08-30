@@ -980,6 +980,21 @@ int32_t Runner_surfaceGetTarget(Runner* runner);
 
 void Runner_dumpState(Runner* runner);
 char* Runner_dumpStateJson(Runner* runner);
+
+typedef enum RunnerCheckpointStatus {
+    RUNNER_CHECKPOINT_READY = 0,
+    RUNNER_CHECKPOINT_NO_ACTIVE_ROOM = 1,
+    RUNNER_CHECKPOINT_TRANSITION_ACTIVE = 2,
+    RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE = 3,
+    RUNNER_CHECKPOINT_FILE_OPEN = 4,
+    RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE = 5,
+    RUNNER_CHECKPOINT_PERSISTENT_ROOM_STATE = 6,
+    RUNNER_CHECKPOINT_VALUE_UNSUPPORTED = 7,
+} RunnerCheckpointStatus;
+
+RunnerCheckpointStatus Runner_checkpointStatus(Runner* runner);
+bool Runner_canCheckpoint(Runner* runner);
+bool Runner_restoreStateJson(Runner* runner, const char* json);
 void Runner_free(Runner* runner);
 RuntimeLayer* Runner_findRuntimeLayerByName(Runner* runner, char* name);
 RuntimeLayer* Runner_findRuntimeLayerById(Runner* runner, int32_t id);
