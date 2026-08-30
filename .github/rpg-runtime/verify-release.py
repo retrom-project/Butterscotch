@@ -54,7 +54,9 @@ def main() -> int:
     javascript = paths[0].read_text(encoding="utf-8")
     for marker in (
         "_setRunnerPaused", "_setGamepadConnected", "_setGamepadButton",
-        "_setGamepadAxis", "runnerReady", "runnerExit",
+        "_setGamepadAxis", "_isRunnerCheckpointAvailable",
+        "_createRunnerCheckpoint", "_restoreRunnerCheckpoint",
+        "runnerReady", "runnerExit",
     ):
         if marker not in javascript:
             raise SystemExit("RPG_RUNTIME_RELEASE_BRIDGE_INVALID")
@@ -64,7 +66,7 @@ def main() -> int:
         for path in paths
     ]
     metadata = {
-        "adapterAbi": "butterscotch-checkpoint",
+        "adapterAbi": "butterscotch-checkpoint-v1",
         "assets": assets,
         "commit": args.commit,
         "digestPolicy": "OBSERVED_CACHE_INTEGRITY_ONLY",

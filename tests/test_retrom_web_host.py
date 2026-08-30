@@ -41,6 +41,12 @@ class RetromWebHostTests(unittest.TestCase):
             self.assertIn(name, self.cmake)
         self.assertIn('"-sEXIT_RUNTIME=1"', self.cmake)
 
+    def test_checkpoint_is_bounded_and_requires_a_paused_frame_boundary(self) -> None:
+        self.assertIn("#define CHECKPOINT_MAX_BYTES (16 * 1024 * 1024)", self.source)
+        self.assertIn("gLoopPaused && gCheckpointAvailable", self.source)
+        self.assertIn('memcmp(bytes, "BSCP", 4) != 0', self.source)
+        self.assertIn("Runner_restoreStateJson(gRunner, json)", self.source)
+
 
 if __name__ == "__main__":
     unittest.main()

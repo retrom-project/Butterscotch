@@ -35,7 +35,7 @@ def main() -> int:
             r"^rpg-runtime-gae2602f1f83c-r[1-9][0-9]*"
             r"(-rc\.[1-9][0-9]*)?$"
         ),
-        "adapterAbi": "butterscotch-checkpoint",
+        "adapterAbi": "butterscotch-checkpoint-v1",
         "releaseAssets": [
             "butterscotch.mjs", "butterscotch.wasm",
             "butterscotch-meta.mjs", "butterscotch-meta.wasm",
@@ -46,11 +46,16 @@ def main() -> int:
         raise SystemExit("RPG_RUNTIME_FORK_MANIFEST_INVALID")
     require("src/web/main.c", (
         "setRunnerPaused", "setGamepadConnected", "setGamepadButton",
-        "setGamepadAxis", "runnerReady", "runnerExit",
+        "setGamepadAxis", "createRunnerCheckpoint", "restoreRunnerCheckpoint",
+        "getRunnerCheckpointStatus",
+        "isRunnerCheckpointAvailable", "runnerReady", "runnerExit",
     ))
     require("CMakeLists.txt", (
         "'_setRunnerPaused'", "'_setGamepadConnected'",
-        "'_setGamepadButton'", "'_setGamepadAxis'", "-sEXIT_RUNTIME=1",
+        "'_setGamepadButton'", "'_setGamepadAxis'",
+        "'_createRunnerCheckpoint'", "'_restoreRunnerCheckpoint'",
+        "'_getRunnerCheckpointStatus'", "-sEXIT_RUNTIME=1",
+        "'GL'",
     ))
     return 0
 

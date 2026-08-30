@@ -22,6 +22,8 @@ static int32_t gAudioSampleRate = 48000;
 static pthread_mutex_t gHostMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t gHostCondition = PTHREAD_COND_INITIALIZER;
 static bool gHostPaused = false;
+static bool gLoopPaused = false;
+static bool gCheckpointAvailable = false;
 static bool gGamepadConnected[MAX_GAMEPADS] = {false};
 static float gGamepadButtons[MAX_GAMEPADS][GP_BUTTON_COUNT] = {{0}};
 static float gGamepadAxes[MAX_GAMEPADS][GP_AXIS_COUNT] = {{0}};
@@ -82,6 +84,9 @@ void setRunnerPaused(int32_t paused) {
     pthread_mutex_lock(&gHostMutex);
     gHostPaused = paused != 0;
     pthread_cond_broadcast(&gHostCondition);
+    while (gRunner != nullptr && !gRunner->shouldExit && gLoopPaused != gHostPaused) {
+        pthread_cond_wait(&gHostCondition, &gHostMutex);
+    }
     pthread_mutex_unlock(&gHostMutex);
 }
 
@@ -116,10 +121,102 @@ void setGamepadAxis(int32_t device, int32_t axis, float value) {
 
 static void waitWhilePaused(void) {
     pthread_mutex_lock(&gHostMutex);
+    gLoopPaused = gHostPaused;
+    pthread_cond_broadcast(&gHostCondition);
     while (gHostPaused && gRunner != nullptr && !gRunner->shouldExit) {
         pthread_cond_wait(&gHostCondition, &gHostMutex);
     }
+    gLoopPaused = false;
+    pthread_cond_broadcast(&gHostCondition);
     pthread_mutex_unlock(&gHostMutex);
+}
+
+#define CHECKPOINT_HEADER_SIZE 12
+#define CHECKPOINT_MAX_BYTES (16 * 1024 * 1024)
+static uint8_t* gCheckpointBytes = nullptr;
+static int32_t gCheckpointSize = 0;
+
+static uint32_t readUint32LE(const uint8_t* source) {
+    return (uint32_t) source[0] | ((uint32_t) source[1] << 8) |
+        ((uint32_t) source[2] << 16) | ((uint32_t) source[3] << 24);
+}
+
+static void writeUint32LE(uint8_t* target, uint32_t value) {
+    target[0] = (uint8_t) value;
+    target[1] = (uint8_t) (value >> 8);
+    target[2] = (uint8_t) (value >> 16);
+    target[3] = (uint8_t) (value >> 24);
+}
+
+int32_t isRunnerCheckpointAvailable(void) {
+    pthread_mutex_lock(&gHostMutex);
+    bool available = gRunner != nullptr && !gRunner->shouldExit && gCheckpointAvailable;
+    pthread_mutex_unlock(&gHostMutex);
+    return available ? 1 : 0;
+}
+
+int32_t getRunnerCheckpointStatus(void) {
+    pthread_mutex_lock(&gHostMutex);
+    int32_t status = gRunner == nullptr || gRunner->shouldExit
+        ? RUNNER_CHECKPOINT_NO_ACTIVE_ROOM
+        : (int32_t) Runner_checkpointStatus(gRunner);
+    if (status == RUNNER_CHECKPOINT_PERSISTENT_ROOM_STATE) {
+        repeat(gRunner->dataWin->room.count, roomIndex) {
+            if ((int32_t) roomIndex != gRunner->currentRoomIndex &&
+                gRunner->dataWin->room.rooms[roomIndex].persistent &&
+                gRunner->savedRoomStates[roomIndex].initialized) {
+                logInfo("Checkpoint unavailable: persistent room state %d is active\n", (int) roomIndex);
+            }
+        }
+    }
+    pthread_mutex_unlock(&gHostMutex);
+    return status;
+}
+
+uint8_t* createRunnerCheckpoint(void) {
+    pthread_mutex_lock(&gHostMutex);
+    bool allowed = gRunner != nullptr && !gRunner->shouldExit && gLoopPaused && gCheckpointAvailable;
+    pthread_mutex_unlock(&gHostMutex);
+    if (!allowed) return nullptr;
+    char* json = Runner_dumpStateJson(gRunner);
+    size_t jsonSize = strlen(json);
+    if (jsonSize == 0 || jsonSize > CHECKPOINT_MAX_BYTES - CHECKPOINT_HEADER_SIZE) {
+        free(json);
+        return nullptr;
+    }
+    free(gCheckpointBytes);
+    gCheckpointSize = (int32_t) jsonSize + CHECKPOINT_HEADER_SIZE;
+    gCheckpointBytes = (uint8_t *)safeMalloc((size_t) gCheckpointSize);
+    memcpy(gCheckpointBytes, "BSCP", 4);
+    writeUint32LE(gCheckpointBytes + 4, 1);
+    writeUint32LE(gCheckpointBytes + 8, (uint32_t) jsonSize);
+    memcpy(gCheckpointBytes + CHECKPOINT_HEADER_SIZE, json, jsonSize);
+    free(json);
+    return gCheckpointBytes;
+}
+
+int32_t getRunnerCheckpointSize(void) {
+    return gCheckpointSize;
+}
+
+int32_t restoreRunnerCheckpoint(const uint8_t* bytes, int32_t size) {
+    pthread_mutex_lock(&gHostMutex);
+    bool allowed = gRunner != nullptr && !gRunner->shouldExit && gLoopPaused;
+    pthread_mutex_unlock(&gHostMutex);
+    if (!allowed || bytes == nullptr || size < CHECKPOINT_HEADER_SIZE || size > CHECKPOINT_MAX_BYTES ||
+        memcmp(bytes, "BSCP", 4) != 0 || readUint32LE(bytes + 4) != 1 ||
+        readUint32LE(bytes + 8) != (uint32_t) size - CHECKPOINT_HEADER_SIZE) return -1;
+    size_t jsonSize = (size_t) size - CHECKPOINT_HEADER_SIZE;
+    char* json = (char *)safeMalloc(jsonSize + 1);
+    memcpy(json, bytes + CHECKPOINT_HEADER_SIZE, jsonSize);
+    json[jsonSize] = '\0';
+    bool restored = Runner_restoreStateJson(gRunner, json);
+    free(json);
+    if (!restored) return -1;
+    pthread_mutex_lock(&gHostMutex);
+    gCheckpointAvailable = Runner_canCheckpoint(gRunner);
+    pthread_mutex_unlock(&gHostMutex);
+    return 0;
 }
 
 static void updateGamepads(RunnerGamepadState* gamepads) {
@@ -222,6 +319,11 @@ void* loop() {
         // Run one game step (Begin Step, Keyboard, Alarms, Step, End Step, room transitions)
         Runner_step(gRunner);
 
+        bool checkpointAvailable = Runner_canCheckpoint(gRunner);
+        pthread_mutex_lock(&gHostMutex);
+        gCheckpointAvailable = checkpointAvailable;
+        pthread_mutex_unlock(&gHostMutex);
+
         int32_t gameW = (int32_t) gRunner->dataWin->gen8.defaultWindowWidth;
         int32_t gameH = (int32_t) gRunner->dataWin->gen8.defaultWindowHeight;
 
@@ -275,9 +377,14 @@ void* loop() {
     pthread_mutex_lock(&gHostMutex);
     gRunner = nullptr;
     gHostPaused = false;
+    gLoopPaused = false;
+    gCheckpointAvailable = false;
     memset(gGamepadConnected, 0, sizeof(gGamepadConnected));
     memset(gGamepadButtons, 0, sizeof(gGamepadButtons));
     memset(gGamepadAxes, 0, sizeof(gGamepadAxes));
+    free(gCheckpointBytes);
+    gCheckpointBytes = nullptr;
+    gCheckpointSize = 0;
     pthread_mutex_unlock(&gHostMutex);
     VM_free(vm);
     DataWin_free(dataWin);
@@ -393,6 +500,9 @@ void startRunner(const char* gamePath, const char* savesPath) {
 
     // Initialize the first room and fire Game Start / Room Start events
     Runner_initFirstRoom(runner);
+    pthread_mutex_lock(&gHostMutex);
+    gCheckpointAvailable = Runner_canCheckpoint(runner);
+    pthread_mutex_unlock(&gHostMutex);
 
     MAIN_THREAD_EM_ASM({ postMessage({ type: 'runnerReady' }); });
 
