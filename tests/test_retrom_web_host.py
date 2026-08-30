@@ -15,6 +15,7 @@ class RetromWebHostTests(unittest.TestCase):
         self.source = (ROOT / "src/web/main.c").read_text(encoding="utf-8")
         self.cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         self.release_workflow = (ROOT / ".github/workflows/rpg-runtime-release.yml").read_text(encoding="utf-8")
+        self.build_script = (ROOT / ".github/rpg-runtime/build-web.sh").read_text(encoding="utf-8")
 
     def test_web_gamepads_are_sampled_at_the_runner_frame_boundary(self) -> None:
         loop = self.source.index("while (!gRunner->shouldExit)")
@@ -51,6 +52,9 @@ class RetromWebHostTests(unittest.TestCase):
     def test_release_workflow_supports_immutable_integration_candidates(self) -> None:
         self.assertIn("(-rc\\.[1-9][0-9]*)?", self.release_workflow)
         self.assertIn("prerelease+=(--prerelease)", self.release_workflow)
+
+    def test_clean_checkout_build_creates_its_ignored_workspace(self) -> None:
+        self.assertLess(self.build_script.index('mkdir -p "$root/.cache"'), self.build_script.index("mktemp -d"))
 
 
 if __name__ == "__main__":

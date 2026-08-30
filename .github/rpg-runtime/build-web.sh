@@ -10,6 +10,7 @@ if find "$output" -mindepth 1 -print -quit | grep -q .; then
   exit 1
 fi
 
+mkdir -p "$root/.cache"
 build_root=$(mktemp -d "$root/.cache/retrom-web-build.XXXXXX")
 cleanup() { rm -rf "$build_root"; }
 trap cleanup EXIT INT TERM
