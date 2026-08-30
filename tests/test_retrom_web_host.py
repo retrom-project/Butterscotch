@@ -60,6 +60,23 @@ class RetromWebHostTests(unittest.TestCase):
         self.assertIn('memcmp(bytes, "BSCP", 4) != 0', self.source)
         self.assertIn("Runner_restoreStateJson(gRunner, json)", self.source)
 
+    def test_checkpoint_v2_preserves_supported_game_data_structures(self) -> None:
+        runner = (ROOT / "src/runner.c").read_text(encoding="utf-8")
+        self.assertIn('writeCheckpointDataStructures(&w, runner);', runner)
+        self.assertIn(
+            'restoreCheckpointDataStructures(runner, dataStructures, &remainingCells)',
+            runner,
+        )
+        self.assertIn('"checkpointSchemaVersion", 2', runner)
+        self.assertIn("clearCheckpointDataStructures(runner);", runner)
+        self.assertNotIn(
+            "runner->dsMapPool[i] != nullptr && shlen(runner->dsMapPool[i]) > 0) "
+            "return RUNNER_CHECKPOINT_DATA_STRUCTURE_ACTIVE",
+            runner,
+        )
+        self.assertIn("writeUint32LE(gCheckpointBytes + 4, 2);", self.source)
+        self.assertIn("readUint32LE(bytes + 4) != 2", self.source)
+
     def test_closing_a_dirty_ini_clears_the_transient_checkpoint_blocker(self) -> None:
         start = self.builtins.index("static RValue builtin_ini_close")
         end = self.builtins.index("static RValue builtin_ini_read_string", start)
