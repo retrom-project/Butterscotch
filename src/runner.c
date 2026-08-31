@@ -5278,7 +5278,9 @@ static bool restoreCheckpointVariables(VMContext* vm, Instance* target, const Js
     if (!JsonReader_isObject(object)) return false;
     repeat(JsonReader_objectLength(object), i) {
         const char* name = JsonReader_getJsonKeyByIndex(object, i);
-        if (name == nullptr || name[0] == '\0') return false;
+        // Some GameMaker VARI chunks contain an empty name for a real variable ID.
+        // Checkpoint v2 already writes that name as a valid empty JSON object key.
+        if (name == nullptr) return false;
         RValue value = RValue_makeUndefined();
         if (!checkpointRValueFromJson(vm, JsonReader_getJsonValueByIndex(object, i), 0, remainingCells, &value)) return false;
         Instance_setSelfVar(target, VM_getOrAllocateVarID(vm, name), value);
