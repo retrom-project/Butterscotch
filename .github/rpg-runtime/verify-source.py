@@ -21,7 +21,7 @@ def main() -> int:
     manifest = json.loads((ROOT / "retrom-fork.json").read_text(encoding="utf-8"))
     expected = {
         "schemaVersion": 1,
-        "forkRepository": "https://github.com/xxxsen/Butterscotch",
+        "forkRepository": "https://github.com/retrom-project/Butterscotch",
         "defaultBranch": "retrom/gae2602f1f83c",
         "upstreamMirrorBranch": "main",
         "upstreams": [{
@@ -32,7 +32,7 @@ def main() -> int:
             "commit": BASELINE,
         }],
         "releaseTagPattern": (
-            r"^rpg-runtime-gae2602f1f83c-r[1-9][0-9]*"
+            r"^retrom-core-gae2602f1f83c-r[1-9][0-9]*"
             r"(-rc\.[1-9][0-9]*)?$"
         ),
         "adapterAbi": "butterscotch-checkpoint-v2",
