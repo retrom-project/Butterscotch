@@ -1,7 +1,7 @@
 # Retrom Butterscotch fork maintenance rules
 
 This fork builds the GameMaker: Studio browser runner consumed by
-`xxxsen/retrom-runtime`. It remains independent of Retrom application APIs,
+`retrom-project/retrom-runtime`. It remains independent of Retrom application APIs,
 databases, review workflows, credentials, and private games.
 
 ## Repository identity
@@ -58,9 +58,11 @@ databases, review workflows, credentials, and private games.
   `.github/rpg-runtime/verify-release.py` with a valid candidate identity.
 - PRs to `retrom/gae2602f1f83c` must pass
   `.github/workflows/rpg-runtime-quality.yml`.
-- Release tags are `rpg-runtime-gae2602f1f83c-rN`, with optional `-rc.N` only
+- Release tags are `retrom-core-gae2602f1f83c-rN`, with optional `-rc.N` only
   for integration candidates. Increment `rN` for any source, build, asset, or
   adapter-contract change on this baseline.
+- Existing `rpg-runtime-*` tags are immutable historical records. Never create
+  another tag in that retired namespace.
 - Tags are annotated and immutable. The tag workflow is the only supported way
   to build and publish the Web assets and `rpg-runtime-release.json`; never
   publish aliases such as `latest` or `stable`.

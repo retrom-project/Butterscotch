@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "forkRepository": "https://github.com/xxxsen/Butterscotch",
+  "forkRepository": "https://github.com/retrom-project/Butterscotch",
   "defaultBranch": "retrom/gae2602f1f83c",
   "upstreamMirrorBranch": "main",
   "upstreams": [
@@ -12,7 +12,7 @@
       "commit": "ae2602f1f83ca70d69b1ca8e66eb336141fe2a16"
     }
   ],
-  "releaseTagPattern": "^rpg-runtime-gae2602f1f83c-r[1-9][0-9]*(-rc\\.[1-9][0-9]*)?$",
+  "releaseTagPattern": "^retrom-core-gae2602f1f83c-r[1-9][0-9]*(-rc\\.[1-9][0-9]*)?$",
   "adapterAbi": "butterscotch-checkpoint-v2",
   "releaseAssets": [
     "butterscotch.mjs",

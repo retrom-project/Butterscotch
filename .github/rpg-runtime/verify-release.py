@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 
-TAG = re.compile(r"^rpg-runtime-gae2602f1f83c-r[1-9][0-9]*(-rc\.[1-9][0-9]*)?$")
+TAG = re.compile(r"^retrom-core-gae2602f1f83c-r[1-9][0-9]*(-rc\.[1-9][0-9]*)?$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
 BASELINE = "ae2602f1f83ca70d69b1ca8e66eb336141fe2a16"
 
@@ -37,7 +37,7 @@ def main() -> int:
     args = parser.parse_args()
     if TAG.fullmatch(args.tag) is None or COMMIT.fullmatch(args.commit) is None:
         raise SystemExit("RPG_RUNTIME_RELEASE_IDENTITY_INVALID")
-    if args.repository != "https://github.com/xxxsen/Butterscotch":
+    if args.repository != "https://github.com/retrom-project/Butterscotch":
         raise SystemExit("RPG_RUNTIME_RELEASE_REPOSITORY_INVALID")
 
     names = [
