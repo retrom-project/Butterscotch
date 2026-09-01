@@ -23,7 +23,7 @@ docker run --rm \
   --volume "$root:/source:ro" \
   --volume "$build_root:/work" \
   --workdir /work \
-  emscripten/emsdk:4.0.8 \
+  emscripten/emsdk@sha256:af45409f3199d88db4b1b03af0098532c8fb33a375ac257463eeb0a622870d06 \
   bash -euo pipefail -c '
     mkdir -p "$HOME" full meta
     emcmake cmake -S /source -B full \
