@@ -51,12 +51,14 @@ def main() -> int:
         "isRunnerCheckpointAvailable", "runnerReady", "runnerExit",
     ))
     require("CMakeLists.txt", (
+        "'_getContentReadSlot'", "'_registerContentFile'",
         "'_setRunnerPaused'", "'_setGamepadConnected'",
         "'_setGamepadButton'", "'_setGamepadAxis'",
         "'_createRunnerCheckpoint'", "'_restoreRunnerCheckpoint'",
         "'_getRunnerCheckpointStatus'", "-sEXIT_RUNTIME=1",
         "'GL'",
     ))
+    require("src/retrom-web/content_fs.cpp", ("getContentReadSlot", "registerContentFile", "emscripten_futex_wait"))
     return 0
 
 
