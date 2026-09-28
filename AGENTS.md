@@ -7,10 +7,8 @@ databases, review workflows, credentials, and private games.
 ## Repository identity
 
 - `main` is an unmodified, fast-forward-only mirror of `upstream/main`.
-- This sync proposes `retrom/ge8294c9070a4` as the next Retrom maintenance
-  baseline. Until reviewed promotion, the remote baseline/default remains
-  `retrom/gae2602f1f83c`. After promotion, changes and release tags originate there,
-  never from `main`.
+- `retrom/ge8294c9070a4` is the Retrom maintenance baseline and default
+  branch. Changes and release tags originate there, never from `main`.
 - `upstream` must point to
   `https://github.com/ButterscotchRunner/Butterscotch.git`.
 - `retrom-fork.json` is the machine-readable baseline and release contract.
