@@ -123,6 +123,9 @@ void setGamepadAxis(int32_t device, int32_t axis, float value) {
 static void waitWhilePaused(void) {
     pthread_mutex_lock(&gHostMutex);
     gLoopPaused = gHostPaused;
+    if (gLoopPaused && gRunner != nullptr) {
+        gCheckpointAvailable = Runner_canCheckpoint(gRunner);
+    }
     pthread_cond_broadcast(&gHostCondition);
     while (gHostPaused && gRunner != nullptr && !gRunner->shouldExit) {
         pthread_cond_wait(&gHostCondition, &gHostMutex);
@@ -320,11 +323,6 @@ void* loop() {
         // Run one game step (Begin Step, Keyboard, Alarms, Step, End Step, room transitions)
         Runner_step(gRunner);
 
-        bool checkpointAvailable = Runner_canCheckpoint(gRunner);
-        pthread_mutex_lock(&gHostMutex);
-        gCheckpointAvailable = checkpointAvailable;
-        pthread_mutex_unlock(&gHostMutex);
-
         int32_t gameW = (int32_t) gRunner->dataWin->gen8.defaultWindowWidth;
         int32_t gameH = (int32_t) gRunner->dataWin->gen8.defaultWindowHeight;
 
@@ -344,6 +342,10 @@ void* loop() {
             emscripten_webgl_commit_frame();
         }
         Runner_handlePendingRoomChange(gRunner);
+        bool checkpointAvailable = Runner_canCheckpoint(gRunner);
+        pthread_mutex_lock(&gHostMutex);
+        gCheckpointAvailable = checkpointAvailable;
+        pthread_mutex_unlock(&gHostMutex);
 
         // Match upstream pacing, including game_set_speed and the GMS2 default FPS.
         // emscripten_get_now() returns milliseconds (performance.now()) and works in workers.
