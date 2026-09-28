@@ -9,7 +9,7 @@
 #include <GLES3/gl3.h>
 #include "data_win.h"
 #include "noop_audio_system.h"
-#include "web_audio_system.h"
+#include "ma_audio_system.h"
 #include "overlay_file_system.h"
 #include "runner.h"
 #include "gl/gl_renderer.h"
@@ -17,7 +17,7 @@
 
 static EMSCRIPTEN_WEBGL_CONTEXT_HANDLE ctx = 0;
 static Runner* gRunner;
-static WebAudioSystem* gWebAudio = nullptr;
+static MaAudioSystem* gWebAudio = nullptr;
 static int32_t gAudioSampleRate = 48000;
 static pthread_mutex_t gHostMutex = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t gHostCondition = PTHREAD_COND_INITIALIZER;
@@ -66,7 +66,7 @@ void pullAudioFrames(float* outPtr, int32_t frameCount) {
         }
         return;
     }
-    WebAudioSystem_pullFrames(gWebAudio, outPtr, frameCount);
+    MaAudioSystem_pullFrames(gWebAudio, outPtr, frameCount);
 }
 
 uint8_t* getKeyDownPtr() {
@@ -345,10 +345,11 @@ void* loop() {
         }
         Runner_handlePendingRoomChange(gRunner);
 
-        // Frame pacing: sleep until the next frame is due, based on the room's speed.
+        // Match upstream pacing, including game_set_speed and the GMS2 default FPS.
         // emscripten_get_now() returns milliseconds (performance.now()) and works in workers.
-        if (gRunner->currentRoom != nullptr && gRunner->currentRoom->speed > 0) {
-            double targetFrameTimeMs = 1000.0 / (double) gRunner->currentRoom->speed;
+        GMLReal gameSpeed = Runner_getEffectiveGameSpeed(gRunner);
+        if (gameSpeed > 0) {
+            double targetFrameTimeMs = 1000.0 / (double) gameSpeed;
             double nextFrameTimeMs = lastFrameStartMs + targetFrameTimeMs;
             double remainingMs = nextFrameTimeMs - emscripten_get_now();
             // Sleep for most of the remaining time, then spin-wait for precision.
@@ -487,7 +488,7 @@ void startRunner(const char* gamePath, const char* savesPath) {
     OverlayFileSystem* overlayFs = OverlayFileSystem_create(bundleDir, savesPath);
     free(bundleDir);
 
-    gWebAudio = WebAudioSystem_create(dataWin, gAudioSampleRate);
+    gWebAudio = MaAudioSystem_createForHost(dataWin, gAudioSampleRate);
     AudioSystem* audioSystem = (AudioSystem*) gWebAudio;
 
     // Initialize the runner

@@ -4639,7 +4639,8 @@ static bool checkpointDataStructuresSupported(Runner* runner, int32_t* remaining
         if (priority->freed) continue;
         if (!checkpointConsumeCells((int64_t) arrlen(priority->items), remainingCells)) return false;
         repeat(arrlen(priority->items), j) {
-            if (!checkpointRValueSupported(priority->items[j].item, 0, remainingCells)) return false;
+            if (!isfinite(priority->items[j].depth) ||
+                !checkpointRValueSupported(priority->items[j].item, 0, remainingCells)) return false;
         }
     }
 
@@ -4665,6 +4666,26 @@ RunnerCheckpointStatus Runner_checkpointStatus(Runner* runner) {
         arrlen(runner->asyncSaveLoadQueue) != 0 || arrlen(runner->asyncBufferGroupOps) != 0 ||
         runner->asyncBufferGroupActive || runner->currentIniPath != nullptr) {
         return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
+    }
+    // v2 cannot restore the runtime resources added by the newer upstream.
+    // Do not emit a checkpoint which would silently lose their state.
+    repeat(arrlen(runner->particleTypePool), i) {
+        if (runner->particleTypePool[i].used || runner->particleTypePool[i].refCount > 0)
+            return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
+    }
+    repeat(arrlen(runner->particleSystemPool), i) {
+        if (runner->particleSystemPool[i].used) return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
+    }
+    repeat(arrlen(runner->audioEmitters), i) {
+        if (runner->audioEmitters[i].active) return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
+    }
+    if (runner->newVertexFormat != nullptr || runner->gameSpeedOverride != 0.0)
+        return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
+    repeat(arrlen(runner->vertexFormats), i) {
+        if (runner->vertexFormats[i] != nullptr) return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
+    }
+    repeat(runner->vertexBufferCount, i) {
+        if (runner->vertexBuffers[i] != nullptr) return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
     }
     repeat(MAX_OPEN_TEXT_FILES, i) if (runner->openTextFiles[i].isOpen) return RUNNER_CHECKPOINT_FILE_OPEN;
     repeat(MAX_OPEN_BINARY_FILES, i) if (runner->openBinaryFiles[i].isOpen) return RUNNER_CHECKPOINT_FILE_OPEN;
@@ -4803,7 +4824,7 @@ static void writeCheckpointDataStructures(JsonWriter* w, Runner* runner) {
         JsonWriter_beginArray(w);
         repeat(arrlen(priority->items), j) {
             JsonWriter_beginObject(w);
-            JsonWriter_propertyInt(w, "priority", priority->items[j].depth);
+            JsonWriter_propertyDouble(w, "priority", priority->items[j].depth);
             JsonWriter_key(w, "value");
             writeRValueJson(w, priority->items[j].item);
             JsonWriter_endObject(w);
@@ -5076,7 +5097,7 @@ static bool checkpointRValueFromJson(VMContext* vm, const JsonValue* value, int3
         case JSON_ARRAY: {
             int32_t length = JsonReader_arrayLength(value);
             if (length < 0 || length > *remainingCells) return false;
-            GMLArray* array = GMLArray_create(vm->dataWin->gen8.wadVersion, 0);
+            GMLArray* array = GMLArray_create(vm->dataWin, 0);
             repeat(length, i) {
                 (*remainingCells)--;
                 RValue cell = RValue_makeUndefined();
@@ -5213,10 +5234,12 @@ static bool restoreCheckpointPriorities(
                 JsonValue* item = JsonReader_getArrayElement(source, j);
                 JsonValue* valueSource = item == nullptr ? nullptr : JsonReader_getJsonValueByKey(item, "value");
                 DsPriorityItem restored = {0};
-                if (!checkpointInteger(item, "priority", &restored.depth) ||
-                    !checkpointRValueFromJson(runner->vmContext, valueSource, 0, remainingCells, &restored.item)) {
+                double depth;
+                if (!checkpointNumber(item, "priority", &depth)) return false;
+                restored.depth = (GMLReal)depth;
+                if (!isfinite(restored.depth)) return false;
+                if (!checkpointRValueFromJson(runner->vmContext, valueSource, 0, remainingCells, &restored.item))
                     return false;
-                }
                 arrput(target->items, restored);
             }
         }

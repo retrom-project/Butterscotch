@@ -2,7 +2,7 @@ name: RPG Runtime Release
 
 on:
   push:
-    tags: ["retrom-core-gae2602f1f83c-r*"]
+    tags: ["retrom-core-ge8294c9070a4-r*"]
 
 permissions:
   contents: write
@@ -22,19 +22,21 @@ jobs:
       - name: Validate release identity
         run: |
           set -euo pipefail
-          [[ "$GITHUB_REF_NAME" =~ ^retrom-core-gae2602f1f83c-r[1-9][0-9]*(-rc\.[1-9][0-9]*)?$ ]]
+          [[ "$GITHUB_REF_NAME" =~ ^retrom-core-ge8294c9070a4-r[1-9][0-9]*(-rc\.[1-9][0-9]*)?$ ]]
           git fetch --force origin \
             "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
           test "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" = tag
           test "$(git rev-list -n 1 "refs/tags/$GITHUB_REF_NAME")" = "$GITHUB_SHA"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git fetch --no-tags origin \
-            '+refs/heads/retrom/gae2602f1f83c:refs/remotes/origin/retrom/gae2602f1f83c'
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/retrom/gae2602f1f83c
-          git merge-base --is-ancestor ae2602f1f83ca70d69b1ca8e66eb336141fe2a16 "$GITHUB_SHA"
-          test -z "$(git rev-list --min-parents=2 ae2602f1f83ca70d69b1ca8e66eb336141fe2a16.."$GITHUB_SHA")"
+            '+refs/heads/retrom/ge8294c9070a4:refs/remotes/origin/retrom/ge8294c9070a4'
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/retrom/ge8294c9070a4
+          git merge-base --is-ancestor e8294c9070a4fb29a98e6d551fbf773c01214201 "$GITHUB_SHA"
+          test -z "$(git rev-list --min-parents=2 e8294c9070a4fb29a98e6d551fbf773c01214201.."$GITHUB_SHA")"
           python3 .github/rpg-runtime/verify-source.py
           python3 tests/test_retrom_web_host.py
+      - name: Test checkpoint round trips
+        run: .github/rpg-runtime/test-checkpoint.sh
       - name: Build Web assets
         run: .github/rpg-runtime/build-web.sh "$RUNNER_TEMP/rpg-runtime-output"
       - name: Validate and describe assets
