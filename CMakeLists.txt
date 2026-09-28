@@ -648,7 +648,7 @@ elseif(PLATFORM STREQUAL "retrom-web")
             "-sENVIRONMENT=worker"
             "-sWASMFS=1"
             "-sEXPORTED_RUNTIME_METHODS=['HEAP8', 'HEAPU8', 'HEAP32', 'HEAPU32', 'HEAPF32', 'ccall', 'cwrap', 'GL', 'specialHTMLTargets', 'UTF8ToString']"
-            "-sEXPORTED_FUNCTIONS=['_main', '_getContentReadSlot', '_registerContentFile', '_mountOpfs', '_startRunner', '_stopRunner', '_setRunnerPaused', '_setGamepadConnected', '_setGamepadButton', '_setGamepadAxis', '_isRunnerCheckpointAvailable', '_getRunnerCheckpointStatus', '_createRunnerCheckpoint', '_getRunnerCheckpointSize', '_restoreRunnerCheckpoint', '_malloc', '_free', '_getKeyDownPtr', '_getKeyUpPtr', '_getKeyCount', '_setAudioSampleRate', '_pullAudioFrames']"
+            "-sEXPORTED_FUNCTIONS=['_main', '_getContentReadSlot', '_registerContentFile', '_mountOpfs', '_startRunner', '_stopRunner', '_setRunnerPaused', '_setGamepadConnected', '_setGamepadButton', '_setGamepadAxis', '_setGamepads', '_isRunnerCheckpointAvailable', '_getRunnerCheckpointStatus', '_createRunnerCheckpoint', '_getRunnerCheckpointSize', '_restoreRunnerCheckpoint', '_malloc', '_free', '_getKeyDownPtr', '_getKeyUpPtr', '_getKeyCount', '_setAudioSampleRate', '_pullAudioFrames']"
             "-sOFFSCREENCANVAS_SUPPORT=1"
             "-sOFFSCREEN_FRAMEBUFFER=1"
             "-sMIN_WEBGL_VERSION=2"

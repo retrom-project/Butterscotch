@@ -1,6 +1,7 @@
 #include "stdio_compat.h"
 #include "string_compat.h"
 #include <errno.h>
+#include <math.h>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <emscripten.h>
@@ -117,6 +118,34 @@ void setGamepadAxis(int32_t device, int32_t axis, float value) {
     if (value > 1.0f) value = 1.0f;
     pthread_mutex_lock(&gHostMutex);
     gGamepadAxes[device][axis] = value;
+    pthread_mutex_unlock(&gHostMutex);
+}
+
+// One frame consists of count slots of connected, GP_BUTTON_COUNT buttons,
+// then GP_AXIS_COUNT axes (all float32). Unspecified slots are disconnected.
+// Copy under the same lock used by updateGamepads, so discovery and input for
+// all devices become visible to the runner in the same frame.
+void setGamepads(const float* values, int32_t count) {
+    if (count < 0 || count > MAX_GAMEPADS || (count > 0 && values == nullptr)) return;
+    const int stride = 1 + GP_BUTTON_COUNT + GP_AXIS_COUNT;
+    pthread_mutex_lock(&gHostMutex);
+    for (int device = 0; device < MAX_GAMEPADS; device++) {
+        bool connected = device < count && values[device * stride] > 0.0f;
+        gGamepadConnected[device] = connected;
+        for (int button = 0; button < GP_BUTTON_COUNT; button++) {
+            float value = connected ? values[device * stride + 1 + button] : 0.0f;
+            if (!isfinite(value) || value < 0.0f) value = 0.0f;
+            if (value > 1.0f) value = 1.0f;
+            gGamepadButtons[device][button] = value;
+        }
+        for (int axis = 0; axis < GP_AXIS_COUNT; axis++) {
+            float value = connected ? values[device * stride + 1 + GP_BUTTON_COUNT + axis] : 0.0f;
+            if (!isfinite(value)) value = 0.0f;
+            if (value < -1.0f) value = -1.0f;
+            if (value > 1.0f) value = 1.0f;
+            gGamepadAxes[device][axis] = value;
+        }
+    }
     pthread_mutex_unlock(&gHostMutex);
 }
 
