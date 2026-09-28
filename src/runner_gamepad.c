@@ -100,6 +100,40 @@ bool RunnerGamepad_isConnected(RunnerGamepadState* gp, int device) {
     return gp->slots[device].connected;
 }
 
+int RunnerGamepad_joystickDevice(RunnerGamepadState* gp, int joystick) {
+    if (gp == NULL || joystick < 1 || joystick > MAX_JOYSTICKS) return -1;
+    bool assigned[MAX_GAMEPADS] = {false};
+    // Keep connected devices in their existing legacy channels. Re-enumerating
+    // by connected count on every query would move a live pad after hotplug.
+    for (int i = 0; i < MAX_JOYSTICKS; i++) {
+        int device = gp->joystickDevices[i] - 1;
+        if (RunnerGamepad_isConnected(gp, device) && !assigned[device]) {
+            assigned[device] = true;
+        } else {
+            gp->joystickDevices[i] = 0;
+        }
+    }
+    // Preserve the historical slot-0/slot-1 correspondence when available.
+    for (int i = 0; i < MAX_JOYSTICKS; i++) {
+        if (gp->joystickDevices[i] == 0 && gp->slots[i].connected && !assigned[i]) {
+            gp->joystickDevices[i] = i + 1;
+            assigned[i] = true;
+        }
+    }
+    // The two-channel legacy API must also see pads in later physical slots.
+    // Modern gamepad_* calls continue to use their original physical indices.
+    for (int device = 0; device < MAX_GAMEPADS; device++) {
+        if (!gp->slots[device].connected || assigned[device]) continue;
+        for (int i = 0; i < MAX_JOYSTICKS; i++) {
+            if (gp->joystickDevices[i] != 0) continue;
+            gp->joystickDevices[i] = device + 1;
+            assigned[device] = true;
+            break;
+        }
+    }
+    return gp->joystickDevices[joystick - 1] - 1;
+}
+
 bool RunnerGamepad_buttonCheck(RunnerGamepadState* gp, int device, int button) {
     if (device < 0 || device >= MAX_GAMEPADS) return false;
     if (!gp->slots[device].connected) return false;

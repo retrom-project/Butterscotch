@@ -6,6 +6,43 @@ void platformLog(MAYBE_UNUSED logType type, const char* format, va_list args) {
 }
 
 int main(void) {
+    // A late lower physical slot must not change the saved legacy selection
+    // when a new runner restores with both devices already connected.
+    RunnerGamepadState originalPads = {0};
+    originalPads.slots[2].connected = true;
+    assert(RunnerGamepad_joystickDevice(&originalPads, 1) == 2);
+    originalPads.slots[0].connected = true;
+    assert(RunnerGamepad_joystickDevice(&originalPads, 2) == 0);
+    JsonWriter padWriter = JsonWriter_create();
+    JsonWriter_beginObject(&padWriter);
+    writeCheckpointJoysticks(&padWriter, &originalPads);
+    JsonWriter_endObject(&padWriter);
+    char* padJson = JsonWriter_copyOutput(&padWriter);
+    JsonValue* padDocument = JsonReader_parse(padJson);
+    RunnerGamepadState restoredPads = {0};
+    restoredPads.slots[0].connected = true;
+    restoredPads.slots[2].connected = true;
+    assert(readCheckpointJoysticks(padDocument, restoredPads.joystickDevices));
+    assert(RunnerGamepad_joystickDevice(&restoredPads, 1) == 2);
+    assert(RunnerGamepad_joystickDevice(&restoredPads, 2) == 0);
+    JsonReader_free(padDocument);
+    JsonWriter_free(&padWriter);
+    free(padJson);
+    const char* badPads[] = {
+        "{\"joystickDevices\":[3,3]}", "{\"joystickDevices\":[-1,0]}",
+        "{\"joystickDevices\":[17,0]}", "{\"joystickDevices\":[0.5,0]}",
+        "{\"joystickDevices\":[0]}", "{\"joystickDevices\":null}",
+    };
+    for (int i = 0; i < (int)(sizeof(badPads) / sizeof(badPads[0])); i++) {
+        padDocument = JsonReader_parse(badPads[i]);
+        assert(!readCheckpointJoysticks(padDocument, restoredPads.joystickDevices));
+        JsonReader_free(padDocument);
+    }
+    padDocument = JsonReader_parse("{}");
+    assert(readCheckpointJoysticks(padDocument, restoredPads.joystickDevices));
+    assert(restoredPads.joystickDevices[0] == 1 && restoredPads.joystickDevices[1] == 2);
+    JsonReader_free(padDocument);
+
     DataWin data = {0};
     data.gen8.wadVersion = 17;
     data.detectedFormat.major = 2;
