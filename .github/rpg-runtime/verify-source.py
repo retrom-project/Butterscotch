@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BASELINE = "ae2602f1f83ca70d69b1ca8e66eb336141fe2a16"
+BASELINE = "e8294c9070a4fb29a98e6d551fbf773c01214201"
 
 
 def require(path: str, markers: tuple[str, ...]) -> None:
@@ -22,7 +22,7 @@ def main() -> int:
     expected = {
         "schemaVersion": 1,
         "forkRepository": "https://github.com/retrom-project/Butterscotch",
-        "defaultBranch": "retrom/gae2602f1f83c",
+        "defaultBranch": "retrom/ge8294c9070a4",
         "upstreamMirrorBranch": "main",
         "upstreams": [{
             "role": "engine",
@@ -32,7 +32,7 @@ def main() -> int:
             "commit": BASELINE,
         }],
         "releaseTagPattern": (
-            r"^retrom-core-gae2602f1f83c-r[1-9][0-9]*"
+            r"^retrom-core-ge8294c9070a4-r[1-9][0-9]*"
             r"(-rc\.[1-9][0-9]*)?$"
         ),
         "adapterAbi": "butterscotch-checkpoint-v2",
@@ -44,7 +44,7 @@ def main() -> int:
     }
     if manifest != expected:
         raise SystemExit("RPG_RUNTIME_FORK_MANIFEST_INVALID")
-    require("src/web/main.c", (
+    require("src/retrom-web/main.c", (
         "setRunnerPaused", "setGamepadConnected", "setGamepadButton",
         "setGamepadAxis", "createRunnerCheckpoint", "restoreRunnerCheckpoint",
         "getRunnerCheckpointStatus",

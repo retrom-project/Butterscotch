@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class RetromWebHostTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.source = (ROOT / "src/web/main.c").read_text(encoding="utf-8")
+        self.source = (ROOT / "src/retrom-web/main.c").read_text(encoding="utf-8")
         self.builtins = (ROOT / "src/vm_builtins.c").read_text(encoding="utf-8")
         self.cmake = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
         self.release_workflow = (ROOT / ".github/workflows/rpg-runtime-release.yml").read_text(encoding="utf-8")

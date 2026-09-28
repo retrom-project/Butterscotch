@@ -27,10 +27,10 @@ docker run --rm \
   bash -euo pipefail -c '
     mkdir -p "$HOME" full meta
     emcmake cmake -S /source -B full \
-      -DWERROR=ON -DPLATFORM=web -DCMAKE_BUILD_TYPE=Release
+      -DWERROR=ON -DPLATFORM=retrom-web -DAUDIO_BACKEND=miniaudio -DVIDEO_BACKEND=none -DCMAKE_BUILD_TYPE=Release
     cmake --build full --target butterscotch
     emcmake cmake -S /source -B meta \
-      -DWERROR=ON -DPLATFORM=web-meta -DCMAKE_BUILD_TYPE=Release
+      -DWERROR=ON -DPLATFORM=retrom-web-meta -DAUDIO_BACKEND=none -DVIDEO_BACKEND=none -DCMAKE_BUILD_TYPE=Release
     cmake --build meta --target butterscotch
   '
 

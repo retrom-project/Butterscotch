@@ -10,9 +10,9 @@ import re
 from pathlib import Path
 
 
-TAG = re.compile(r"^retrom-core-gae2602f1f83c-r[1-9][0-9]*(-rc\.[1-9][0-9]*)?$")
+TAG = re.compile(r"^retrom-core-ge8294c9070a4-r[1-9][0-9]*(-rc\.[1-9][0-9]*)?$")
 COMMIT = re.compile(r"^[0-9a-f]{40}$")
-BASELINE = "ae2602f1f83ca70d69b1ca8e66eb336141fe2a16"
+BASELINE = "e8294c9070a4fb29a98e6d551fbf773c01214201"
 
 
 def digest(path: Path) -> str:
