@@ -872,6 +872,7 @@ typedef struct {
 // ===[ AUDO - Embedded Audio ]===
 typedef struct {
     bool present;
+    bool headerPending; // lazy entries retain the size-header offset until first use
     uint32_t dataOffset; // absolute file offset to audio data
     uint32_t dataSize;   // length of audio data
     uint8_t* data;       // owned copy of audio data

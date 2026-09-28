@@ -465,6 +465,8 @@ void startRunner(const char* gamePath, const char* savesPath) {
     options.parseAudo = true;
     options.skipLoadingPreciseMasksForNonPreciseSprites = true;
     options.lazyLoadRooms = false;
+    options.lazyLoadTextures = true;
+    options.lazyLoadAudio = true;
     options.eagerlyLoadedRooms = nullptr;
     DataWin* dataWin = DataWin_parse(gamePath, options);
 

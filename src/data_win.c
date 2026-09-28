@@ -2687,9 +2687,7 @@ void DataWin_loadTxtrIfNeeded(DataWin* dw, uint32_t textureId) {
     size_t read = fread(tex->blobData, 1, tex->blobSize, dw->lazyLoadFile);
     fseek(dw->lazyLoadFile, old_seek, SEEK_SET);
 
-    if (read != tex->blobSize) {
-        logWarn("loadTxtrIfNeeded: couldn't read %u bytes to load a texture.\n", tex->blobSize);
-    }
+    requireMessage(read == tex->blobSize, "Truncated lazy texture payload");
 }
 
 static void parseAUDO(BinaryReader* reader, DataWin* dw, bool loadAudioDataLazily) {
@@ -2704,8 +2702,14 @@ static void parseAUDO(BinaryReader* reader, DataWin* dw, bool loadAudioDataLazil
     a->entries = (AudioEntry *)safeCalloc(count, sizeof(AudioEntry));
     repeat(count, i) {
         if (ptrs[i] == 0) continue;
-        BinaryReader_seek(reader, ptrs[i]);
         a->entries[i].present = true;
+        if (loadAudioDataLazily) {
+            // Reading each size header would touch nearly every network window in AUDO.
+            a->entries[i].headerPending = true;
+            a->entries[i].dataOffset = ptrs[i];
+            continue;
+        }
+        BinaryReader_seek(reader, ptrs[i]);
         a->entries[i].dataSize = BinaryReader_readUint32(reader);
         a->entries[i].dataOffset = (uint32_t)BinaryReader_getPosition(reader);
         // Load audio data into owned buffer
@@ -2727,7 +2731,7 @@ void DataWin_loadAudoIfNeeded(DataWin* dw, uint32_t audioEntryId) {
     Audo* a = &dw->audo;
     AudioEntry* entry = &a->entries[audioEntryId];
 
-    if (!entry->present || entry->dataSize == 0) return;
+    if (!entry->present || (!entry->headerPending && entry->dataSize == 0)) return;
     if (entry->data != nullptr) return;
 
     if (!dw->lazyLoadFile) {
@@ -2735,17 +2739,24 @@ void DataWin_loadAudoIfNeeded(DataWin* dw, uint32_t audioEntryId) {
         return;
     }
 
-    entry->data = (uint8_t *)safeMalloc(entry->dataSize);
-
-    memset(entry->data, 0, entry->dataSize);
     long old_seek = ftell(dw->lazyLoadFile);
+    requireMessage(entry->dataOffset <= dw->fileSize, "Invalid lazy audio offset");
     fseek(dw->lazyLoadFile, entry->dataOffset, SEEK_SET);
+    if (entry->headerPending) {
+        requireMessage(dw->fileSize - entry->dataOffset >= 4, "Invalid lazy audio header");
+        uint8_t header[4];
+        requireMessage(fread(header, 1, 4, dw->lazyLoadFile) == 4, "Truncated lazy audio header");
+        entry->dataSize = (uint32_t)header[0] | (uint32_t)header[1] << 8 |
+            (uint32_t)header[2] << 16 | (uint32_t)header[3] << 24;
+        entry->dataOffset += 4;
+        entry->headerPending = false;
+    }
+    requireMessage(entry->dataSize <= dw->fileSize - entry->dataOffset, "Invalid lazy audio length");
+    entry->data = entry->dataSize ? (uint8_t *)safeMalloc(entry->dataSize) : nullptr;
     size_t read = fread(entry->data, 1, entry->dataSize, dw->lazyLoadFile);
     fseek(dw->lazyLoadFile, old_seek, SEEK_SET);
 
-    if (read != entry->dataSize) {
-        logError("loadAudoIfNeeded: couldn't read %u bytes to load audio entry %u.\n", entry->dataSize, audioEntryId);
-    }
+    requireMessage(read == entry->dataSize, "Truncated lazy audio payload");
 }
 
 // ===[ MAIN PARSE FUNCTION ]===
@@ -2912,7 +2923,10 @@ DataWin* DataWin_parse(const char* filePath, DataWinParserOptions options) {
 
         // Bulk-read the chunk data into memory for fast parsing
         uint8_t* chunkBuffer = nullptr;
-        if (shouldParse && chunkLength > 0 && options.loadType == DATAWINLOADTYPE_LOAD_PER_CHUNK) {
+        bool lazyChunk = (options.lazyLoadTextures && memcmp(chunkName, "TXTR", 4) == 0) ||
+            (options.lazyLoadAudio && memcmp(chunkName, "AUDO", 4) == 0) ||
+            (options.lazyLoadRooms && memcmp(chunkName, "ROOM", 4) == 0);
+        if (shouldParse && !lazyChunk && chunkLength > 0 && options.loadType == DATAWINLOADTYPE_LOAD_PER_CHUNK) {
             chunkBuffer = (uint8_t *)malloc(chunkLength);
             if (chunkBuffer) {
                 size_t read = fread(chunkBuffer, 1, chunkLength, reader.file);

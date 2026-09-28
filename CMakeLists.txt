@@ -615,6 +615,10 @@ if(PLATFORM STREQUAL "cli" OR PLATFORM STREQUAL "vita" OR PLATFORM STREQUAL "swi
             $<TARGET_FILE_DIR:butterscotch>/gamecontrollerdb.txt
     )
 elseif(PLATFORM STREQUAL "retrom-web")
+    enable_language(CXX)
+    target_sources(butterscotch PRIVATE src/retrom-web/content_fs.cpp)
+    target_include_directories(butterscotch SYSTEM PRIVATE "${EMSCRIPTEN_ROOT_PATH}/system/lib/wasmfs")
+    set_target_properties(butterscotch PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
     if (NOT ENABLE_MODERN_GL)
         message(FATAL_ERROR "Web requires modern gl!")
     endif()
@@ -644,7 +648,7 @@ elseif(PLATFORM STREQUAL "retrom-web")
             "-sENVIRONMENT=worker"
             "-sWASMFS=1"
             "-sEXPORTED_RUNTIME_METHODS=['HEAP8', 'HEAPU8', 'HEAP32', 'HEAPU32', 'HEAPF32', 'ccall', 'cwrap', 'GL', 'specialHTMLTargets', 'UTF8ToString']"
-            "-sEXPORTED_FUNCTIONS=['_main', '_mountOpfs', '_startRunner', '_stopRunner', '_setRunnerPaused', '_setGamepadConnected', '_setGamepadButton', '_setGamepadAxis', '_isRunnerCheckpointAvailable', '_getRunnerCheckpointStatus', '_createRunnerCheckpoint', '_getRunnerCheckpointSize', '_restoreRunnerCheckpoint', '_malloc', '_free', '_getKeyDownPtr', '_getKeyUpPtr', '_getKeyCount', '_setAudioSampleRate', '_pullAudioFrames']"
+            "-sEXPORTED_FUNCTIONS=['_main', '_getContentReadSlot', '_registerContentFile', '_mountOpfs', '_startRunner', '_stopRunner', '_setRunnerPaused', '_setGamepadConnected', '_setGamepadButton', '_setGamepadAxis', '_isRunnerCheckpointAvailable', '_getRunnerCheckpointStatus', '_createRunnerCheckpoint', '_getRunnerCheckpointSize', '_restoreRunnerCheckpoint', '_malloc', '_free', '_getKeyDownPtr', '_getKeyUpPtr', '_getKeyCount', '_setAudioSampleRate', '_pullAudioFrames']"
             "-sOFFSCREENCANVAS_SUPPORT=1"
             "-sOFFSCREEN_FRAMEBUFFER=1"
             "-sMIN_WEBGL_VERSION=2"
