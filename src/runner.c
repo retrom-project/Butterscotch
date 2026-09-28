@@ -4853,6 +4853,15 @@ static void writeCheckpointDataStructures(JsonWriter* w, Runner* runner) {
     JsonWriter_endObject(w);
 }
 
+static void writeCheckpointJoysticks(JsonWriter* writer, const RunnerGamepadState* gamepads) {
+    JsonWriter_key(writer, "joystickDevices");
+    JsonWriter_beginArray(writer);
+    for (int i = 0; i < MAX_JOYSTICKS; i++) {
+        JsonWriter_int(writer, gamepads != nullptr ? gamepads->joystickDevices[i] : 0);
+    }
+    JsonWriter_endArray(writer);
+}
+
 char* Runner_dumpStateJson(Runner* runner) {
     DataWin* dataWin = runner->dataWin;
     int32_t instanceCount = (int32_t) arrlen(runner->instances);
@@ -4864,6 +4873,7 @@ char* Runner_dumpStateJson(Runner* runner) {
     JsonWriter_propertyInt(&w, "checkpointSchemaVersion", 2);
 
     JsonWriter_propertyInt(&w, "frame", runner->frameCount);
+    writeCheckpointJoysticks(&w, runner->gamepads);
 
     // Room info
     JsonWriter_key(&w, "room");
@@ -5401,10 +5411,34 @@ static bool restoreCheckpointInstance(Runner* runner, const JsonValue* value, in
     return true;
 }
 
+static bool readCheckpointJoysticks(const JsonValue* root, int32_t devices[MAX_JOYSTICKS]) {
+    JsonValue* values = JsonReader_getJsonValueByKey(root, "joystickDevices");
+    // Older checkpoints used direct physical slots for joystick 1/2.
+    if (values == nullptr) {
+        for (int i = 0; i < MAX_JOYSTICKS; i++) devices[i] = i + 1;
+        return true;
+    }
+    if (values->type != JSON_ARRAY || JsonReader_arrayLength(values) != MAX_JOYSTICKS) return false;
+    int32_t parsed[MAX_JOYSTICKS];
+    for (int i = 0; i < MAX_JOYSTICKS; i++) {
+        JsonValue* value = JsonReader_getArrayElement(values, i);
+        if (value == nullptr || value->type != JSON_NUMBER) return false;
+        double number = JsonReader_getDouble(value);
+        if (!isfinite(number) || number < 0 || number > MAX_GAMEPADS || number != (int32_t) number) return false;
+        parsed[i] = (int32_t) number;
+        for (int j = 0; j < i; j++) {
+            if (parsed[i] != 0 && parsed[j] == parsed[i]) return false;
+        }
+    }
+    memcpy(devices, parsed, sizeof(parsed));
+    return true;
+}
+
 bool Runner_restoreStateJson(Runner* runner, const char* json) {
     JsonValue* root = JsonReader_parse(json);
     if (root == nullptr) return false;
     int32_t schema, frame, roomIndex;
+    int32_t joystickDevices[MAX_JOYSTICKS];
     JsonValue* room = checkpointField(root, "room", JSON_OBJECT);
     JsonValue* instances = checkpointField(root, "instances", JSON_ARRAY);
     JsonValue* globals = checkpointField(root, "globalVariables", JSON_OBJECT);
@@ -5412,7 +5446,7 @@ bool Runner_restoreStateJson(Runner* runner, const char* json) {
     bool valid = checkpointInteger(root, "checkpointSchemaVersion", &schema) && schema == 2 &&
         checkpointInteger(root, "frame", &frame) && frame >= 0 && checkpointInteger(room, "index", &roomIndex) &&
         roomIndex >= 0 && (uint32_t) roomIndex < runner->dataWin->room.count && instances != nullptr && globals != nullptr &&
-        dataStructures != nullptr &&
+        dataStructures != nullptr && readCheckpointJoysticks(root, joystickDevices) &&
         JsonReader_arrayLength(instances) >= 0 && JsonReader_arrayLength(instances) <= 100000;
     if (!valid) {JsonReader_free(root); return false;}
 
@@ -5431,7 +5465,14 @@ bool Runner_restoreStateJson(Runner* runner, const char* json) {
     for (int i = 0; valid && i < JsonReader_arrayLength(instances); i++) {
         valid = restoreCheckpointInstance(runner, JsonReader_getArrayElement(instances, i), &remainingCells);
     }
-    if (valid) runner->frameCount = frame;
+    if (valid) {
+        runner->frameCount = frame;
+        // Restore channel identity only. Button and axis states come from the
+        // currently connected devices on the first resumed frame.
+        if (runner->gamepads != nullptr) {
+            memcpy(runner->gamepads->joystickDevices, joystickDevices, sizeof(joystickDevices));
+        }
+    }
     JsonReader_free(root);
     return valid;
 }
