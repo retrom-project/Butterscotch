@@ -37,6 +37,8 @@ jobs:
           python3 tests/test_retrom_web_host.py
       - name: Test checkpoint round trips
         run: .github/rpg-runtime/test-checkpoint.sh
+      - name: Test lazy content reads
+        run: bash .github/rpg-runtime/test-lazy-data.sh
       - name: Build Web assets
         run: .github/rpg-runtime/build-web.sh "$RUNNER_TEMP/rpg-runtime-output"
       - name: Validate and describe assets
