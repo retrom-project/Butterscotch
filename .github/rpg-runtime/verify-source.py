@@ -46,14 +46,14 @@ def main() -> int:
         raise SystemExit("RPG_RUNTIME_FORK_MANIFEST_INVALID")
     require("src/retrom-web/main.c", (
         "setRunnerPaused", "setGamepadConnected", "setGamepadButton",
-        "setGamepadAxis", "createRunnerCheckpoint", "restoreRunnerCheckpoint",
+        "setGamepadAxis", "setGamepads", "createRunnerCheckpoint", "restoreRunnerCheckpoint",
         "getRunnerCheckpointStatus",
         "isRunnerCheckpointAvailable", "runnerReady", "runnerExit",
     ))
     require("CMakeLists.txt", (
         "'_getContentReadSlot'", "'_registerContentFile'",
         "'_setRunnerPaused'", "'_setGamepadConnected'",
-        "'_setGamepadButton'", "'_setGamepadAxis'",
+        "'_setGamepadButton'", "'_setGamepadAxis'", "'_setGamepads'",
         "'_createRunnerCheckpoint'", "'_restoreRunnerCheckpoint'",
         "'_getRunnerCheckpointStatus'", "-sEXIT_RUNTIME=1",
         "'GL'",

@@ -54,7 +54,7 @@ def main() -> int:
     javascript = paths[0].read_text(encoding="utf-8")
     for marker in (
         "_setRunnerPaused", "_setGamepadConnected", "_setGamepadButton",
-        "_setGamepadAxis", "_isRunnerCheckpointAvailable",
+        "_setGamepadAxis", "_setGamepads", "_isRunnerCheckpointAvailable",
         "_createRunnerCheckpoint", "_restoreRunnerCheckpoint",
         "runnerReady", "runnerExit",
     ):

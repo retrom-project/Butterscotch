@@ -88,7 +88,11 @@ void RunnerGamepad_beginFrame(RunnerGamepadState* gp) {
 }
 
 int RunnerGamepad_getDeviceCount(RunnerGamepadState* gp) {
-    return gp->connectedCount;
+    // GML enumerates [0, device_count); occupied slots need not be contiguous.
+    for (int device = MAX_GAMEPADS - 1; device >= 0; device--) {
+        if (gp->slots[device].connected) return device + 1;
+    }
+    return 0;
 }
 
 bool RunnerGamepad_isConnected(RunnerGamepadState* gp, int device) {

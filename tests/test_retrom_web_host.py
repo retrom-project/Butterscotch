@@ -54,6 +54,16 @@ class RetromWebHostTests(unittest.TestCase):
             self.assertIn(name, self.cmake)
         self.assertIn('"-sEXIT_RUNTIME=1"', self.cmake)
 
+    def test_gamepad_snapshot_is_published_under_one_frame_lock(self) -> None:
+        start = self.source.index("void setGamepads(")
+        end = self.source.index("static void waitWhilePaused", start)
+        snapshot = self.source[start:end]
+        self.assertEqual(snapshot.count("pthread_mutex_lock(&gHostMutex)"), 1)
+        self.assertEqual(snapshot.count("pthread_mutex_unlock(&gHostMutex)"), 1)
+        self.assertLess(snapshot.index("pthread_mutex_lock"), snapshot.index("for (int device"))
+        self.assertGreater(snapshot.index("pthread_mutex_unlock"), snapshot.index("gGamepadAxes[device][axis] ="))
+        self.assertIn("'_setGamepads'", self.cmake)
+
     def test_checkpoint_is_bounded_and_requires_a_paused_frame_boundary(self) -> None:
         self.assertIn("#define CHECKPOINT_MAX_BYTES (16 * 1024 * 1024)", self.source)
         self.assertIn("gLoopPaused && gCheckpointAvailable", self.source)
