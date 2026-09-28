@@ -111,28 +111,35 @@ static void maInit(AudioSystem* audio, DataWin* dataWin, FileSystem* fileSystem)
     arrput(ma->base.audioGroups, dataWin);
     ma->fileSystem = fileSystem;
 
-    ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
-    deviceConfig.playback.format   = ma_format_f32;
-    deviceConfig.playback.channels = 2;
-    deviceConfig.periods           = 3;
-    deviceConfig.periodSizeInMilliseconds = 10;
-    deviceConfig.dataCallback = ma_engine_data_callback_internal;
-    deviceConfig.pUserData    = &ma->engine;
-    ma_result deviceResult = ma_device_init(NULL, &deviceConfig, &ma->device);
-    if (deviceResult != MA_SUCCESS) {
-        logError("Audio: Failed to initialize playback device (error %d)\n", deviceResult);
-        return;
-    }
     ma_engine_config config = ma_engine_config_init();
-    config.pDevice = &ma->device;
-    
+    if (ma->hostSampleRate > 0) {
+        config.noDevice = MA_TRUE;
+        config.channels = 2;
+        config.sampleRate = (ma_uint32)ma->hostSampleRate;
+    } else {
+        ma_device_config deviceConfig = ma_device_config_init(ma_device_type_playback);
+        deviceConfig.playback.format   = ma_format_f32;
+        deviceConfig.playback.channels = 2;
+        deviceConfig.periods           = 3;
+        deviceConfig.periodSizeInMilliseconds = 10;
+        deviceConfig.dataCallback = ma_engine_data_callback_internal;
+        deviceConfig.pUserData    = &ma->engine;
+        ma_result deviceResult = ma_device_init(NULL, &deviceConfig, &ma->device);
+        if (deviceResult != MA_SUCCESS) {
+            logError("Audio: Failed to initialize playback device (error %d)\n", deviceResult);
+            return;
+        }
+        config.pDevice = &ma->device;
+    }
+
     ma_result result = ma_engine_init(&config, &ma->engine);
     if (result != MA_SUCCESS) {
         logError("Audio: Failed to initialize miniaudio engine (error %d)\n", result);
-        ma_device_uninit(&ma->device);
+        if (ma->hostSampleRate == 0) ma_device_uninit(&ma->device);
         return;
     }
 
+    ma->engineReady = true;
     memset(ma->instances, 0, sizeof(ma->instances));
     ma->nextInstanceCounter = 0;
 
@@ -181,7 +188,7 @@ static void maDestroy(AudioSystem* audio) {
     }
     arrfree(ma->base.audioGroups);
 
-    ma_device_uninit(&ma->device);
+    if (ma->hostSampleRate == 0) ma_device_uninit(&ma->device);
     ma_engine_uninit(&ma->engine);
     free(ma);
 }
@@ -483,12 +490,12 @@ static void maResumeAll(AudioSystem* audio) {
 
 static void maSuspend(AudioSystem* audio) {
     MaAudioSystem* ma = (MaAudioSystem*) audio;
-    ma_device_stop(ma_engine_get_device(&ma->engine));
+    if (ma->hostSampleRate == 0) ma_device_stop(ma_engine_get_device(&ma->engine));
 }
 
 static void maResume(AudioSystem* audio) {
     MaAudioSystem* ma = (MaAudioSystem*) audio;
-    ma_device_start(ma_engine_get_device(&ma->engine));
+    if (ma->hostSampleRate == 0) ma_device_start(ma_engine_get_device(&ma->engine));
 }
 
 static void maSetSoundGain(AudioSystem* audio, int32_t soundOrInstance, float gain, uint32_t timeMs) {
@@ -944,4 +951,20 @@ MaAudioSystem* MaAudioSystem_create(DataWin* dataWin) {
     maAudioSystemVtable.destroyStream = maDestroyStream;
     ma->base.vtable = &maAudioSystemVtable;
     return ma;
+}
+
+MaAudioSystem* MaAudioSystem_createForHost(DataWin* dataWin, int32_t sampleRate) {
+    MaAudioSystem* audio = MaAudioSystem_create(dataWin);
+    audio->hostSampleRate = sampleRate > 0 ? sampleRate : 48000;
+    return audio;
+}
+
+void MaAudioSystem_pullFrames(MaAudioSystem* audio, float* out, int32_t frameCount) {
+    if (out == nullptr || frameCount <= 0) return;
+    if (audio == nullptr || !audio->engineReady) {
+        memset(out, 0, (size_t)frameCount * 2 * sizeof(float));
+        return;
+    }
+    ma_uint64 framesRead = 0;
+    ma_engine_read_pcm_frames(&audio->engine, out, (ma_uint64)frameCount, &framesRead);
 }

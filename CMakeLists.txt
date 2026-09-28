@@ -115,7 +115,7 @@ option(ENABLE_WAD14 "Enable support for WAD Version 14 and below" ON)
 option(ENABLE_WAD16 "Enable support for WAD Version 15/16" ON)
 option(ENABLE_WAD17 "Enable support for WAD Version 17" ON)
 option(ENABLE_LEGACY_GL "Enable the legacy OpenGL renderer" ON)
-if(PLATFORM STREQUAL "switch" OR PLATFORM STREQUAL "web")
+if(PLATFORM STREQUAL "switch" OR PLATFORM STREQUAL "web" OR PLATFORM STREQUAL "retrom-web")
     set(ENABLE_LEGACY_GL OFF CACHE BOOL "Enable the legacy OpenGL renderer" FORCE)
 endif()
 option(ENABLE_MODERN_GL "Enable the modern OpenGL renderer" ON)
@@ -156,7 +156,7 @@ file(GLOB SOURCES src/*.c)
 
 # These platforms haven't been converted to the refactored system yet.
 # This list should NEVER grow, all new platforms should use the new system.
-if(PLATFORM STREQUAL "ps2" OR PLATFORM STREQUAL "ps3" OR PLATFORM STREQUAL "android")
+if(PLATFORM STREQUAL "ps2" OR PLATFORM STREQUAL "ps3" OR PLATFORM STREQUAL "android" OR PLATFORM STREQUAL "retrom-web" OR PLATFORM STREQUAL "retrom-web-meta")
     list(REMOVE_ITEM SOURCES "${CMAKE_CURRENT_SOURCE_DIR}/src/loop.c")
 endif()
 
@@ -624,6 +624,10 @@ elseif(PLATFORM STREQUAL "retrom-web")
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/gl_common)
     target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/image)
 
+    file(GLOB DEBUG_FONT_SOURCES src/debug_font/*.c)
+    target_sources(butterscotch PRIVATE ${DEBUG_FONT_SOURCES})
+    target_include_directories(butterscotch PRIVATE ${CMAKE_SOURCE_DIR}/src/debug_font)
+
     # stb_image
     target_include_directories(butterscotch PUBLIC vendor/stb/image)
 
@@ -660,7 +664,7 @@ elseif(PLATFORM STREQUAL "retrom-web-meta")
         OUTPUT_NAME "butterscotch-meta"
     )
 
-    target_link_libraries(butterscotch PRIVATE stb_ds)
+    target_link_libraries(butterscotch PRIVATE stb_ds sha1 bzip2)
 
     target_link_options(
             butterscotch

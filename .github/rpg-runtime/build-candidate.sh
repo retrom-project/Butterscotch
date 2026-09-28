@@ -7,6 +7,6 @@ python3 "$root/.github/rpg-runtime/candidate_descriptor.py" prepare "$output"
 commit=$(git -C "$root" rev-parse HEAD)
 python3 "$root/.github/rpg-runtime/verify-release.py" --output "$output" \
   --repository https://github.com/retrom-project/Butterscotch \
-  --tag retrom-core-gae2602f1f83c-r999999 --commit "$commit"
+  --tag retrom-core-ge8294c9070a4-r999999 --commit "$commit"
 rm "$output/rpg-runtime-release.json"
 python3 "$root/.github/rpg-runtime/candidate_descriptor.py" finalize "$output" --core-id butterscotch

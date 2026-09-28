@@ -40,6 +40,8 @@ typedef struct {
     AudioSystem base;
     ma_engine engine;
     ma_device device;
+    int32_t hostSampleRate;
+    bool engineReady;
     SoundInstance instances[MAX_SOUND_INSTANCES];
     int32_t nextInstanceCounter;
     FileSystem* fileSystem;
@@ -49,5 +51,7 @@ typedef struct {
 } MaAudioSystem;
 
 MaAudioSystem* MaAudioSystem_create(DataWin* dataWin);
+MaAudioSystem* MaAudioSystem_createForHost(DataWin* dataWin, int32_t sampleRate);
+void MaAudioSystem_pullFrames(MaAudioSystem* audio, float* out, int32_t frameCount);
 
 #endif /* _BS_MA_AUDIO_SYSTEM_H_ */
