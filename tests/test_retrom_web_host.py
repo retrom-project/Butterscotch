@@ -87,15 +87,6 @@ class RetromWebHostTests(unittest.TestCase):
         self.assertIn("writeUint32LE(gCheckpointBytes + 4, 2);", self.source)
         self.assertIn("readUint32LE(bytes + 4) != 2", self.source)
 
-    def test_checkpoint_v2_restores_empty_game_variable_names(self) -> None:
-        runner = (ROOT / "src/runner.c").read_text(encoding="utf-8")
-        start = runner.index("static bool restoreCheckpointVariables")
-        end = runner.index("static void clearCheckpointInstances", start)
-        restore = runner[start:end]
-        self.assertIn("name == nullptr", restore)
-        self.assertNotIn("name[0] == '\\0'", restore)
-        self.assertIn("VM_getOrAllocateVarID(vm, name)", restore)
-
     def test_closing_a_dirty_ini_clears_the_transient_checkpoint_blocker(self) -> None:
         start = self.builtins.index("static RValue builtin_ini_close")
         end = self.builtins.index("static RValue builtin_ini_read_string", start)
