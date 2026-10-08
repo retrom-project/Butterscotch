@@ -181,8 +181,7 @@ void ResolvedEventTable_build(ResolvedEventTable* outTable, DataWin* dw, const E
     }
 
     outTable->bySlot = (SlotResponderEntry *)safeMalloc((size_t) totalEntries * sizeof(SlotResponderEntry));
-    uint32_t* slotCursor = (uint32_t *)safeMalloc((size_t) slotCount * sizeof(uint32_t));
-    memset(slotCursor, 0, (size_t) slotCount * sizeof(uint32_t));
+    uint32_t* slotCursor = (uint32_t *)safeCalloc((size_t) slotCount, sizeof(uint32_t));
 
     {
     repeat(objectCount, oi) {

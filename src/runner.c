@@ -2290,7 +2290,9 @@ static void flattenCollisionEvents(Runner* runner) {
             depth++;
         }
 
-        qsort(dst->events, dst->eventCount, sizeof(FlattenedCollisionEvent), compareTargetObjectIndexAscending);
+        if (dst->eventCount > 1) {
+            qsort(dst->events, dst->eventCount, sizeof(FlattenedCollisionEvent), compareTargetObjectIndexAscending);
+        }
     }
 }
 
@@ -5308,7 +5310,7 @@ static bool restoreCheckpointVariableNames(VMContext* vm, const JsonValue* root,
     int32_t nextId;
     JsonValue* names = checkpointField(root, "variableNames", JSON_OBJECT);
     if (names == nullptr || !checkpointInteger(root, "nextDynamicVarID", &nextId) ||
-        nextId <= 0 || nextId == INT32_MAX ||
+        nextId <= 0 ||
         !checkpointConsumeCells(JsonReader_objectLength(names), remainingCells)) return false;
     VMContext restored = {0};
     repeat(JsonReader_objectLength(names), i) {

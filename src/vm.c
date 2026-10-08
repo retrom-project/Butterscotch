@@ -313,6 +313,8 @@ static GMLArray* VM_arraySetWithCoW(VMContext* ctx, RValue* slot, int32_t index,
 int32_t VM_getOrAllocateVarID(VMContext* ctx, const char* name) {
     ptrdiff_t slot = shgeti(ctx->varNameMap, name);
     if (slot >= 0) return ctx->varNameMap[slot].value;
+    requireMessage(ctx->nextDynamicVarID >= 0 && ctx->nextDynamicVarID < INT32_MAX,
+        "VM: Variable ID space exhausted");
     int32_t id = ctx->nextDynamicVarID++;
     shput(ctx->varNameMap, safeStrdup(name), id);
     return id;
@@ -3615,6 +3617,7 @@ VMContext* VM_create(DataWin* dataWin) {
                 maxSelfVarID = variable->varID;
         }
     }
+    requireMessage(maxSelfVarID < INT32_MAX, "VM: Variable ID space exhausted");
     ctx->nextDynamicVarID = maxSelfVarID + 1;
 
     // Build funcName -> codeIndex hash map from SCPT chunk
