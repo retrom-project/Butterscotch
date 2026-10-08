@@ -2290,7 +2290,9 @@ static void flattenCollisionEvents(Runner* runner) {
             depth++;
         }
 
-        qsort(dst->events, dst->eventCount, sizeof(FlattenedCollisionEvent), compareTargetObjectIndexAscending);
+        if (dst->eventCount > 1) {
+            qsort(dst->events, dst->eventCount, sizeof(FlattenedCollisionEvent), compareTargetObjectIndexAscending);
+        }
     }
 }
 
@@ -4579,6 +4581,8 @@ static bool checkpointRValueSupported(RValue val, int32_t depth, int32_t* remain
 }
 
 static bool checkpointVariablesSupported(const IntRValueHashMap* variables, int32_t* remainingCells) {
+    if (variables->count > (uint32_t) *remainingCells) return false;
+    *remainingCells -= (int32_t) variables->count;
     for (uint32_t i = 0; i < variables->capacity; i++) {
         const IntRValueEntry* entry = &variables->entries[i];
         if (entry->key == INT_RVALUE_HASHMAP_EMPTY_KEY) continue;
@@ -4696,7 +4700,8 @@ RunnerCheckpointStatus Runner_checkpointStatus(Runner* runner) {
             runner->savedRoomStates[i].initialized) return RUNNER_CHECKPOINT_PERSISTENT_ROOM_STATE;
     }
     int32_t remainingCells = 100000;
-    if (!checkpointDataStructuresSupported(runner, &remainingCells)) return RUNNER_CHECKPOINT_VALUE_UNSUPPORTED;
+    if (!checkpointConsumeCells(shlen(runner->vmContext->varNameMap), &remainingCells) ||
+        !checkpointDataStructuresSupported(runner, &remainingCells)) return RUNNER_CHECKPOINT_VALUE_UNSUPPORTED;
     if (!checkpointVariablesSupported(&runner->vmContext->globalScopeInstance->selfVars, &remainingCells)) return RUNNER_CHECKPOINT_VALUE_UNSUPPORTED;
     repeat(arrlen(runner->instances), i) {
         Instance* instance = runner->instances[i];
@@ -4862,6 +4867,32 @@ static void writeCheckpointJoysticks(JsonWriter* writer, const RunnerGamepadStat
     JsonWriter_endArray(writer);
 }
 
+static void writeCheckpointVariables(JsonWriter* writer, const IntRValueHashMap* variables) {
+    // Names are not variable identities: compiled VARI entries can share an
+    // empty name, and runtime-created self variables need not appear in VARI.
+    JsonWriter_beginArray(writer);
+    for (uint32_t i = 0; i < variables->capacity; i++) {
+        const IntRValueEntry* entry = &variables->entries[i];
+        if (entry->key == INT_RVALUE_HASHMAP_EMPTY_KEY) continue;
+        JsonWriter_beginObject(writer);
+        JsonWriter_propertyInt(writer, "id", entry->key);
+        JsonWriter_key(writer, "value");
+        writeRValueJson(writer, entry->value);
+        JsonWriter_endObject(writer);
+    }
+    JsonWriter_endArray(writer);
+}
+
+static void writeCheckpointVariableNames(JsonWriter* writer, const VMContext* vm) {
+    JsonWriter_propertyInt(writer, "nextDynamicVarID", vm->nextDynamicVarID);
+    JsonWriter_key(writer, "variableNames");
+    JsonWriter_beginObject(writer);
+    repeat(shlen(vm->varNameMap), i) {
+        JsonWriter_propertyInt(writer, vm->varNameMap[i].key, vm->varNameMap[i].value);
+    }
+    JsonWriter_endObject(writer);
+}
+
 char* Runner_dumpStateJson(Runner* runner) {
     DataWin* dataWin = runner->dataWin;
     int32_t instanceCount = (int32_t) arrlen(runner->instances);
@@ -4874,6 +4905,7 @@ char* Runner_dumpStateJson(Runner* runner) {
 
     JsonWriter_propertyInt(&w, "frame", runner->frameCount);
     writeCheckpointJoysticks(&w, runner->gamepads);
+    writeCheckpointVariableNames(&w, runner->vmContext);
 
     // Room info
     JsonWriter_key(&w, "room");
@@ -4969,30 +5001,8 @@ char* Runner_dumpStateJson(Runner* runner) {
         }
         JsonWriter_endObject(&w);
 
-        // Self variables (non-array, sparse hashmap)
         JsonWriter_key(&w, "selfVariables");
-        JsonWriter_beginObject(&w);
-        repeat(inst->selfVars.capacity, svIdx) {
-            IntRValueEntry* entry = &inst->selfVars.entries[svIdx];
-            if (entry->key == INT_RVALUE_HASHMAP_EMPTY_KEY) continue;
-            int32_t varID = entry->key;
-            RValue val = entry->value;
-            if (val.type == RVALUE_UNDEFINED) continue;
-
-            // Resolve variable name from VARI chunk
-            const char* varName = "?";
-            repeat(dataWin->vari.variableCount, varIdx) {
-                Variable* var = &dataWin->vari.variables[varIdx];
-                if (var->instanceType == INSTANCE_SELF && var->varID == varID) {
-                    varName = var->name;
-                    break;
-                }
-            }
-
-            JsonWriter_key(&w, varName);
-            writeRValueJson(&w, val);
-        }
-        JsonWriter_endObject(&w);
+        writeCheckpointVariables(&w, &inst->selfVars);
         JsonWriter_endObject(&w);
     }
 
@@ -5033,25 +5043,8 @@ char* Runner_dumpStateJson(Runner* runner) {
     }
     JsonWriter_endArray(&w);
 
-    // Global variables (non-array)
     JsonWriter_key(&w, "globalVariables");
-    JsonWriter_beginObject(&w);
-
-    {
-    repeat(runner->vmContext->globalScopeInstance->selfVars.capacity, i) {
-        IntRValueEntry entryOnTheVarStruct = runner->vmContext->globalScopeInstance->selfVars.entries[i];
-        RValue target = VM_structGetVariableByVarId(runner->vmContext->globalScopeInstance, entryOnTheVarStruct.key, -1);
-
-        if (entryOnTheVarStruct.key != INT_RVALUE_HASHMAP_EMPTY_KEY) {
-            char* name = VM_getVariableNameByVarId(runner->vmContext, entryOnTheVarStruct.key);
-
-            JsonWriter_key(&w, name);
-            writeRValueJson(&w, target);
-        }
-    }
-    }
-
-    JsonWriter_endObject(&w);
+    writeCheckpointVariables(&w, &runner->vmContext->globalScopeInstance->selfVars);
     JsonWriter_endObject(&w);
 
     char* result = JsonWriter_copyOutput(&w);
@@ -5307,16 +5300,46 @@ static bool restoreCheckpointDataStructures(
     return valid;
 }
 
-static bool restoreCheckpointVariables(VMContext* vm, Instance* target, const JsonValue* object, int32_t* remainingCells) {
-    if (!JsonReader_isObject(object)) return false;
-    repeat(JsonReader_objectLength(object), i) {
-        const char* name = JsonReader_getJsonKeyByIndex(object, i);
-        // Some GameMaker VARI chunks contain an empty name for a real variable ID.
-        // Checkpoint v2 already writes that name as a valid empty JSON object key.
-        if (name == nullptr) return false;
+static void clearCheckpointVariableNames(VMContext* vm) {
+    repeat(shlen(vm->varNameMap), i) free(vm->varNameMap[i].key);
+    shfree(vm->varNameMap);
+    vm->varNameMap = nullptr;
+}
+
+static bool restoreCheckpointVariableNames(VMContext* vm, const JsonValue* root, int32_t* remainingCells) {
+    int32_t nextId;
+    JsonValue* names = checkpointField(root, "variableNames", JSON_OBJECT);
+    if (names == nullptr || !checkpointInteger(root, "nextDynamicVarID", &nextId) ||
+        nextId <= 0 ||
+        !checkpointConsumeCells(JsonReader_objectLength(names), remainingCells)) return false;
+    VMContext restored = {0};
+    repeat(JsonReader_objectLength(names), i) {
+        const char* name = JsonReader_getJsonKeyByIndex(names, i);
+        int32_t id;
+        if (name == nullptr || !checkpointInteger(names, name, &id) || id < 0 || id >= nextId ||
+            shgeti(restored.varNameMap, name) >= 0) {
+            clearCheckpointVariableNames(&restored);
+            return false;
+        }
+        shput(restored.varNameMap, safeStrdup(name), id);
+    }
+    clearCheckpointVariableNames(vm);
+    vm->varNameMap = restored.varNameMap;
+    vm->nextDynamicVarID = nextId;
+    return true;
+}
+
+static bool restoreCheckpointVariables(VMContext* vm, Instance* target, const JsonValue* variables, int32_t* remainingCells) {
+    if (!JsonReader_isArray(variables) ||
+        !checkpointConsumeCells(JsonReader_arrayLength(variables), remainingCells)) return false;
+    repeat(JsonReader_arrayLength(variables), i) {
+        JsonValue* entry = JsonReader_getArrayElement(variables, i);
+        int32_t id;
+        if (!checkpointInteger(entry, "id", &id) || id < 0 || id >= vm->nextDynamicVarID ||
+            IntRValueHashMap_contains(&target->selfVars, id)) return false;
         RValue value = RValue_makeUndefined();
-        if (!checkpointRValueFromJson(vm, JsonReader_getJsonValueByIndex(object, i), 0, remainingCells, &value)) return false;
-        Instance_setSelfVar(target, VM_getOrAllocateVarID(vm, name), value);
+        if (!checkpointRValueFromJson(vm, JsonReader_getJsonValueByKey(entry, "value"), 0, remainingCells, &value)) return false;
+        Instance_setSelfVar(target, id, value);
         RValue_free(&value);
     }
     return true;
@@ -5343,7 +5366,7 @@ static bool restoreCheckpointInstance(Runner* runner, const JsonValue* value, in
     JsonValue* sprite = checkpointField(value, "sprite", JSON_OBJECT);
     JsonValue* scale = checkpointField(value, "scale", JSON_OBJECT);
     JsonValue* alarms = checkpointField(value, "alarms", JSON_OBJECT);
-    JsonValue* variables = checkpointField(value, "selfVariables", JSON_OBJECT);
+    JsonValue* variables = checkpointField(value, "selfVariables", JSON_ARRAY);
     int32_t spriteIndex, blend;
     double imageIndex, imageSpeed, imageXscale, imageYscale, imageAngle, imageAlpha;
     if (!checkpointInteger(value, "instanceId", &instanceId) || instanceId < 0 ||
@@ -5413,12 +5436,7 @@ static bool restoreCheckpointInstance(Runner* runner, const JsonValue* value, in
 
 static bool readCheckpointJoysticks(const JsonValue* root, int32_t devices[MAX_JOYSTICKS]) {
     JsonValue* values = JsonReader_getJsonValueByKey(root, "joystickDevices");
-    // Older checkpoints used direct physical slots for joystick 1/2.
-    if (values == nullptr) {
-        for (int i = 0; i < MAX_JOYSTICKS; i++) devices[i] = i + 1;
-        return true;
-    }
-    if (values->type != JSON_ARRAY || JsonReader_arrayLength(values) != MAX_JOYSTICKS) return false;
+    if (values == nullptr || values->type != JSON_ARRAY || JsonReader_arrayLength(values) != MAX_JOYSTICKS) return false;
     int32_t parsed[MAX_JOYSTICKS];
     for (int i = 0; i < MAX_JOYSTICKS; i++) {
         JsonValue* value = JsonReader_getArrayElement(values, i);
@@ -5441,7 +5459,7 @@ bool Runner_restoreStateJson(Runner* runner, const char* json) {
     int32_t joystickDevices[MAX_JOYSTICKS];
     JsonValue* room = checkpointField(root, "room", JSON_OBJECT);
     JsonValue* instances = checkpointField(root, "instances", JSON_ARRAY);
-    JsonValue* globals = checkpointField(root, "globalVariables", JSON_OBJECT);
+    JsonValue* globals = checkpointField(root, "globalVariables", JSON_ARRAY);
     JsonValue* dataStructures = checkpointField(root, "dataStructures", JSON_OBJECT);
     bool valid = checkpointInteger(root, "checkpointSchemaVersion", &schema) && schema == 2 &&
         checkpointInteger(root, "frame", &frame) && frame >= 0 && checkpointInteger(room, "index", &roomIndex) &&
@@ -5460,7 +5478,8 @@ bool Runner_restoreStateJson(Runner* runner, const char* json) {
     IntRValueHashMap_freeAllValues(&runner->vmContext->globalScopeInstance->selfVars);
     clearCheckpointDataStructures(runner);
     int32_t remainingCells = 100000;
-    valid = restoreCheckpointDataStructures(runner, dataStructures, &remainingCells) &&
+    valid = restoreCheckpointVariableNames(runner->vmContext, root, &remainingCells) &&
+        restoreCheckpointDataStructures(runner, dataStructures, &remainingCells) &&
         restoreCheckpointVariables(runner->vmContext, runner->vmContext->globalScopeInstance, globals, &remainingCells);
     for (int i = 0; valid && i < JsonReader_arrayLength(instances); i++) {
         valid = restoreCheckpointInstance(runner, JsonReader_getArrayElement(instances, i), &remainingCells);
