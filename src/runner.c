@@ -4953,6 +4953,13 @@ RunnerCheckpointStatus Runner_checkpointStatus(Runner* runner) {
     }
     // v2 cannot restore the runtime resources added by the newer upstream.
     // Do not emit a checkpoint which would silently lose their state.
+    if (runner->physics != nullptr || runner->physicsResources != nullptr)
+        return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
+    if (runner->physicsRooms != nullptr) {
+        repeat(runner->dataWin->room.count, i) {
+            if (runner->physicsRooms[i] != nullptr) return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
+        }
+    }
     repeat(arrlen(runner->particleTypePool), i) {
         if (runner->particleTypePool[i].used || runner->particleTypePool[i].refCount > 0)
             return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
@@ -4963,7 +4970,7 @@ RunnerCheckpointStatus Runner_checkpointStatus(Runner* runner) {
     repeat(arrlen(runner->audioEmitters), i) {
         if (runner->audioEmitters[i].active) return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
     }
-    if (runner->newVertexFormat != nullptr || runner->gameSpeedOverride != 0.0)
+    if (runner->newVertexFormat != nullptr || runner->gameSpeedOverride != 0.0 || !runner->drawEnabled)
         return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
     repeat(arrlen(runner->vertexFormats), i) {
         if (runner->vertexFormats[i] != nullptr) return RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE;
@@ -5679,7 +5686,7 @@ static bool restoreCheckpointInstance(Runner* runner, const JsonValue* value, in
     instance->imageSpeed = (float) imageSpeed;
     instance->imageXscale = (float) imageXscale;
     instance->imageYscale = (float) imageYscale;
-    instance->imageAngle = (float) imageAngle;
+    instance->imageAngle = (GMLReal) imageAngle;
     instance->imageAlpha = (float) imageAlpha;
     instance->imageBlend = (uint32_t) blend;
     instance->visible = visible;

@@ -2,7 +2,7 @@ name: RPG Runtime Quality
 
 on:
   pull_request:
-    branches: ["retrom/ge8294c9070a4"]
+    branches: ["retrom/g0a36f3762700"]
   workflow_dispatch:
 
 permissions:
@@ -37,7 +37,7 @@ jobs:
           python3 .github/rpg-runtime/verify-release.py \
             --output "$RUNNER_TEMP/rpg-runtime-output" \
             --repository "https://github.com/$GITHUB_REPOSITORY" \
-            --tag retrom-core-ge8294c9070a4-r1-rc.1 \
+            --tag retrom-core-g0a36f3762700-r1-rc.1 \
             --commit "$GITHUB_SHA"
       - name: Upload branch integration candidate
         uses: actions/upload-artifact@v4

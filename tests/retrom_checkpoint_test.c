@@ -264,6 +264,7 @@ static void testCheckpointRunnerRestore(void) {
     Instance_setSelfVar(actor, 6, RValue_makeUndefined());
     Instance_setSelfVar(actor, first, RValue_makeString("first"));
     Instance_setSelfVar(actor, second, RValue_makeReal(99));
+    actor->imageAngle = (GMLReal) 123.123456789;
     actor->alarm[0] = 19;
     actor->activeAlarmMask = 1;
     Instance* later = Runner_createInstance(original, 21, 63, 0);
@@ -294,6 +295,8 @@ static void testCheckpointRunnerRestore(void) {
     actor = hmget(fresh->instancesById, actorId);
     assert(actor != NULL && actor->objectIndex == 0 && actor->createEventFired);
     assert(actor->x == 42 && actor->y == 84 && actor->alarm[0] == 19 && actor->activeAlarmMask == 1);
+    assert(actor->imageAngle == (GMLReal) 123.123456789);
+    assert(actor->roomIndex == fresh->currentRoomIndex);
     assert(fresh->nextInstanceId == (uint32_t) laterId + 1);
     assert(IntRValueHashMap_get(&vm->globalScopeInstance->selfVars, 1).real == 11);
     assert(strcmp(IntRValueHashMap_get(&vm->globalScopeInstance->selfVars, 2).string, "player") == 0);
@@ -412,7 +415,31 @@ int main(void) {
     runner.currentRoom = &room;
     runner.dataWin = &data;
     runner.pendingRoom = -1;
+    runner.drawEnabled = true;
     vm.globalScopeInstance = &globals;
+    assert(Runner_checkpointStatus(&runner) == RUNNER_CHECKPOINT_READY);
+    runner.drawEnabled = false;
+    assert(Runner_checkpointStatus(&runner) == RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE);
+    runner.drawEnabled = true;
+    // Merely allocating per-room slots for an ordinary room is harmless.
+    PhysicsEngine* worlds[1] = {NULL};
+    runner.physicsRooms = worlds;
+    data.room.count = 1;
+    data.room.rooms = &room;
+    runner.currentRoomIndex = 0;
+    assert(Runner_checkpointStatus(&runner) == RUNNER_CHECKPOINT_READY);
+    // Opaque resources cannot be represented by the current checkpoint codec.
+    runner.physics = (PhysicsEngine*) &room;
+    assert(Runner_checkpointStatus(&runner) == RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE);
+    runner.physics = NULL;
+    runner.physicsResources = (PhysicsResources*) &room;
+    assert(Runner_checkpointStatus(&runner) == RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE);
+    runner.physicsResources = NULL;
+    worlds[0] = (PhysicsEngine*) &room;
+    assert(Runner_checkpointStatus(&runner) == RUNNER_CHECKPOINT_RUNTIME_RESOURCE_ACTIVE);
+    worlds[0] = NULL;
+    runner.physicsRooms = NULL;
+    data.room.count = 0;
     assert(Runner_checkpointStatus(&runner) == RUNNER_CHECKPOINT_READY);
     ParticleType type = {0};
     type.used = true;

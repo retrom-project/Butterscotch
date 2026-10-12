@@ -7,7 +7,7 @@ databases, review workflows, credentials, and private games.
 ## Repository identity
 
 - `main` is an unmodified, fast-forward-only mirror of `upstream/main`.
-- `retrom/ge8294c9070a4` is the Retrom maintenance baseline and default
+- `retrom/g0a36f3762700` is the Retrom maintenance baseline and default
   branch. Changes and release tags originate there, never from `main`.
 - `upstream` must point to
   `https://github.com/ButterscotchRunner/Butterscotch.git`.
@@ -20,7 +20,7 @@ databases, review workflows, credentials, and private games.
 ## Branches and commits
 
 - Use short-lived `fix/*`, `feat/*`, `build/*`, or
-  `sync/upstream-<baseline>` branches created from `retrom/ge8294c9070a4`.
+  `sync/upstream-<baseline>` branches created from `retrom/g0a36f3762700`.
 - Branch names use lowercase ASCII and hyphens. Do not create `temp`, `clean`,
   `final`, `runtime-clean`, parallel maintenance branches, or branches named
   after an agent or user.
@@ -40,8 +40,9 @@ databases, review workflows, credentials, and private games.
   GameMaker map/list/queue/stack/priority/grid pools and preserves pool IDs.
   Do not reintroduce a blanket data-structure blocker or label a different wire
   format as v2; buffers, motion-planning grids, structs and persistent-room
-  snapshots, particle pools, spatial audio emitters, vertex resources and game
-  speed overrides remain unavailable until they have exact round-trip tests.
+  snapshots, physics worlds and resources, particle pools, spatial audio emitters,
+  vertex resources, disabled drawing and game speed overrides remain unavailable
+  until they have exact round-trip tests.
 - A core-owned exit must be observable by the host exactly once. Once exited,
   checkpoint creation must fail and all input must be released.
 - Tests use only the repository's redistributable, non-commercial fixtures.
@@ -57,9 +58,9 @@ databases, review workflows, credentials, and private games.
 - Web changes must also run
   `.github/rpg-runtime/build-web.sh <empty-output-directory>` and
   `.github/rpg-runtime/verify-release.py` with a valid candidate identity.
-- PRs to `retrom/ge8294c9070a4` must pass
+- PRs to `retrom/g0a36f3762700` must pass
   `.github/workflows/rpg-runtime-quality.yml`.
-- Release tags are `retrom-core-ge8294c9070a4-rN`, with optional `-rc.N` only
+- Release tags are `retrom-core-g0a36f3762700-rN`, with optional `-rc.N` only
   for integration candidates. Increment `rN` for any source, build, asset, or
   adapter-contract change on this baseline.
 - Existing `rpg-runtime-*` tags are immutable historical records. Never create

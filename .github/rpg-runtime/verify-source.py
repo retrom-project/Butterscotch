@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-BASELINE = "e8294c9070a4fb29a98e6d551fbf773c01214201"
+BASELINE = "0a36f376270087a229bf268591582af4760607fe"
 
 
 def require(path: str, markers: tuple[str, ...]) -> None:
@@ -22,7 +22,7 @@ def main() -> int:
     expected = {
         "schemaVersion": 1,
         "forkRepository": "https://github.com/retrom-project/Butterscotch",
-        "defaultBranch": "retrom/ge8294c9070a4",
+        "defaultBranch": "retrom/g0a36f3762700",
         "upstreamMirrorBranch": "main",
         "upstreams": [{
             "role": "engine",
@@ -32,7 +32,7 @@ def main() -> int:
             "commit": BASELINE,
         }],
         "releaseTagPattern": (
-            r"^retrom-core-ge8294c9070a4-r[1-9][0-9]*"
+            r"^retrom-core-g0a36f3762700-r[1-9][0-9]*"
             r"(-rc\.[1-9][0-9]*)?$"
         ),
         "adapterAbi": "butterscotch-checkpoint-v2",

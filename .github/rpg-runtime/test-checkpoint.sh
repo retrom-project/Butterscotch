@@ -17,8 +17,10 @@ read -r -a ldflags <<< "${LDFLAGS:-}"
 ${CC:-cc} -std=gnu99 -DENABLE_WAD14 -DENABLE_WAD16 -DENABLE_WAD17 \
   -DENABLE_NOOP_RENDERER -DBUTTERSCOTCH_VIDEO_NULL "${cflags[@]}" \
   -ffunction-sections -fdata-sections -Isrc -Isrc/video -Ivendor/stb/ds \
-  -Ivendor/md5 -Ivendor/sha1 -Ivendor/base64 -Ivendor/bzip2 \
+  -Ivendor/md5 -Ivendor/sha1 -Ivendor/base64 -Ivendor/bzip2 -Ivendor/miniz \
   tests/retrom_checkpoint_test.c "${sources[@]}" src/video/null_video.c \
+  src/physics/physics.c src/physics/disabled/physics_disabled.c \
+  vendor/miniz/miniz.c vendor/miniz/miniz_tdef.c vendor/miniz/miniz_tinfl.c \
   vendor/md5/md5.c vendor/sha1/sha1.c vendor/base64/base64.c \
   vendor/bzip2/{bz_internal_error,bzlib,crctable,decompress,huffman,randtable}.c \
   -Wl,--gc-sections "${ldflags[@]}" -lm -o "$work/test"
