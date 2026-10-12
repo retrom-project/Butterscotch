@@ -32,6 +32,17 @@ jobs:
         run: bash .github/rpg-runtime/test-gamepad.sh
       - name: Build Web assets
         run: .github/rpg-runtime/build-web.sh "$RUNNER_TEMP/rpg-runtime-output"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+      - name: Prepare browser regression tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save playwright@1.61.1
+          "$RUNNER_TEMP/browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Render the non-commercial Loritta fixture
+        env:
+          RETROM_PLAYWRIGHT_ROOT: ${{ runner.temp }}/browser
+        run: node .github/rpg-runtime/test-web-render.mjs "$RUNNER_TEMP/rpg-runtime-output"
       - name: Validate candidate assets
         run: |
           python3 .github/rpg-runtime/verify-release.py \

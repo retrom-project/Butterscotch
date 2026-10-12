@@ -57,7 +57,8 @@ databases, review workflows, credentials, and private games.
   `python3 tests/test_retrom_web_host.py`, and `.github/rpg-runtime/test-checkpoint.sh`.
 - Web changes must also run
   `.github/rpg-runtime/build-web.sh <empty-output-directory>` and
-  `.github/rpg-runtime/verify-release.py` with a valid candidate identity.
+  `.github/rpg-runtime/verify-release.py` with a valid candidate identity, followed
+  by the real browser texture regression in `.github/rpg-runtime/test-web-render.mjs`.
 - PRs to `retrom/g0a36f3762700` must pass
   `.github/workflows/rpg-runtime-quality.yml`.
 - Release tags are `retrom-core-g0a36f3762700-rN`, with optional `-rc.N` only

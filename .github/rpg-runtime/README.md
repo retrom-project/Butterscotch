@@ -17,3 +17,10 @@ Run the source contract, Web host tests and native checkpoint test listed in
 `AGENTS.md`, then build with `.github/rpg-runtime/build-candidate.sh` into an empty
 directory. Local candidate validation does not promote the remote maintenance
 branch or change any released Provider pin.
+
+After building, run `node .github/rpg-runtime/test-web-render.mjs <output>` with
+`RETROM_PLAYWRIGHT_ROOT` pointing to a package directory containing Playwright
+1.61.1. `RETROM_CHROME_EXECUTABLE` optionally selects an existing Chrome binary.
+This test runs the repository's non-commercial Loritta fixture through the actual
+Web core and checks rendered texture pixels. It detects missing WebGL texture or
+application-surface initialization even when game logic and checkpoints still run.

@@ -505,6 +505,10 @@ void startRunner(const char* gamePath, const char* savesPath) {
     VMContext* vm = VM_create(dataWin);
 
     Renderer* renderer = GLRenderer_create();
+    // Upstream configures these in its desktop loop; the Web host owns its loop.
+    // WebGL requires a valid internal format for both textures and render targets.
+    ((GLRenderer*) renderer)->textureFormat = GL_RGBA;
+    ((GLRenderer*) renderer)->surfaceFormat = GL_RGBA;
 
     // Bundle path = directory containing data.win, e.g. "/butterscotch/games/undertale/".
     // Save path = whatever the worker passed in, e.g. "/butterscotch/saves/undertale/".
