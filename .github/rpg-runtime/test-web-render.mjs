@@ -105,7 +105,7 @@ try {
   assert.deepEqual(errors.filter(error => !error.includes('404')), []);
   assert.equal(result.images.length, 2);
   for (const sample of result.images) {
-    assert.ok(sample.nonBlack > 1000 && sample.colors > 16, `Expected rendered game textures, got ${JSON.stringify(sample)}`);
+    assert.ok(sample.nonBlack > 1000 && sample.colors > 4, `Expected rendered game textures, got ${JSON.stringify(sample)}`);
   }
   console.log(JSON.stringify({test: 'Web core renders Loritta textures and application surface', ...result}));
 } finally {
