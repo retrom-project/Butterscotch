@@ -52,16 +52,10 @@ class ContentFile : public wasmfs::DataFile {
             slot.control[11].store(static_cast<int32_t>(at >> 32));
             slot.control[0].store(1);
             emscripten_futex_wake(&slot.control[0], INT_MAX);
-            double deadline = emscripten_get_now() + 15000;
+            // No local deadline: the runtime reader bounds each network attempt and waits through
+            // outages. Closing the slot changes the state word and wakes this wait.
             while (slot.control[0].load() == 1) {
-                double remaining = deadline - emscripten_get_now();
-                if (remaining <= 0) {
-                    slot.control[6].store(1);
-                    slot.control[0].store(4);
-                    emscripten_futex_wake(&slot.control[0], INT_MAX);
-                    return -EIO;
-                }
-                emscripten_futex_wait(&slot.control[0], 1, remaining);
+                emscripten_futex_wait(&slot.control[0], 1, INFINITY);
             }
             if (slot.control[6].load() || slot.control[0].load() != 2 ||
                 slot.control[4].load() != static_cast<int32_t>(count)) return -EIO;
