@@ -11,3 +11,5 @@ compat/config.mk
 src/android/frontend/.gradle/
 src/android/frontend/app/.cxx/
 src/android/frontend/local.properties
+__pycache__/
+*.pyc

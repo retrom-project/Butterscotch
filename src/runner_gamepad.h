@@ -5,6 +5,7 @@
 #include <stdbool.h>
 
 #define MAX_GAMEPADS 16
+#define MAX_JOYSTICKS 2
 
 #define GP_BUTTON_COUNT 17
 #define GP_AXIS_COUNT 4
@@ -51,6 +52,8 @@ typedef struct {
 typedef struct {
     GamepadSlot slots[MAX_GAMEPADS];
     int connectedCount;
+    // Legacy joystick 1/2 -> one-based physical slot; zero means unassigned.
+    int32_t joystickDevices[MAX_JOYSTICKS];
 } RunnerGamepadState;
 
 RunnerGamepadState* RunnerGamepad_create(void);
@@ -61,6 +64,7 @@ void RunnerGamepad_beginFrame(RunnerGamepadState* gp);
 int RawToGPUndertale(int32_t gmlButton);
 int RunnerGamepad_getDeviceCount(RunnerGamepadState* gp);
 bool RunnerGamepad_isConnected(RunnerGamepadState* gp, int device);
+int RunnerGamepad_joystickDevice(RunnerGamepadState* gp, int joystick);
 bool RunnerGamepad_buttonCheck(RunnerGamepadState* gp, int device, int button);
 bool RunnerGamepad_buttonCheckPressed(RunnerGamepadState* gp, int device, int button);
 bool RunnerGamepad_buttonCheckReleased(RunnerGamepadState* gp, int device, int button);

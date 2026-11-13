@@ -8931,6 +8931,7 @@ static RValue builtin_ini_close(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE
     if (runner->currentIni == nullptr) {
         free(runner->currentIniPath);
         runner->currentIniPath = nullptr;
+        runner->currentIniDirty = false;
         // No ini open = empty
         return RValue_makeOwnedString(safeStrdup(""));
     }
@@ -8943,6 +8944,7 @@ static RValue builtin_ini_close(VMContext* ctx, MAYBE_UNUSED RValue* args, MAYBE
         FileSystem* fs = runner->fileSystem;
         fs->vtable->writeFileText(fs, runner->currentIniPath, serialized);
     }
+    runner->currentIniDirty = false;
 
     // Move to cache instead of freeing
     discardIniCache(runner);
@@ -9686,7 +9688,7 @@ static RValue builtin_joystick_exists(VMContext* ctx, RValue* args, int32_t argC
     REQUIRE_ARGC_AT_LEAST("joystick_exists", 1, RValue_makeBool(false));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     return RValue_makeBool(RunnerGamepad_isConnected(runner->gamepads, id));
 }
 
@@ -9694,7 +9696,7 @@ static RValue builtin_joystick_xpos(VMContext* ctx, RValue* args, int32_t argCou
     REQUIRE_ARGC_AT_LEAST("joystick_xpos", 1, RValue_makeReal(0.0));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     return RValue_makeReal((GMLReal) RunnerGamepad_axisValue(runner->gamepads, id, GP_AXIS_LH));
 }
 
@@ -9702,7 +9704,7 @@ static RValue builtin_joystick_ypos(VMContext* ctx, RValue* args, int32_t argCou
     REQUIRE_ARGC_AT_LEAST("joystick_ypos", 1, RValue_makeReal(0.0));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     return RValue_makeReal((GMLReal) RunnerGamepad_axisValue(runner->gamepads, id, GP_AXIS_LV));
 }
 
@@ -9711,7 +9713,7 @@ static RValue builtin_joystick_direction(VMContext* ctx, RValue* args, int32_t a
     REQUIRE_ARGC_AT_LEAST("joystick_direction", 1, RValue_makeReal(101.0));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(101.0);
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     float haxis = RunnerGamepad_axisValue(runner->gamepads, id, GP_AXIS_LH);
     float vaxis = RunnerGamepad_axisValue(runner->gamepads, id, GP_AXIS_LV);
 
@@ -9740,7 +9742,7 @@ static RValue builtin_joystick_pov(VMContext* ctx, RValue* args, int32_t argCoun
     REQUIRE_ARGC_AT_LEAST("joystick_pov", 1, RValue_makeReal(-1.0));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(-1.0);
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     RunnerGamepadState* gp = runner->gamepads;
     bool up    = RunnerGamepad_buttonCheck(gp, id, GP_PADU);
     bool down  = RunnerGamepad_buttonCheck(gp, id, GP_PADD);
@@ -9762,7 +9764,7 @@ static RValue builtin_joystick_check_button(VMContext* ctx, RValue* args, int32_
     REQUIRE_ARGC_AT_LEAST("joystick_check_button", 2, RValue_makeBool(false));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     int32_t button = RawToGPUndertale(RValue_toInt32(args[1])); //UNDERTALE HACK
     return RValue_makeBool(RunnerGamepad_buttonCheck(runner->gamepads, id, button));
 }
@@ -9771,7 +9773,7 @@ static RValue builtin_joystick_has_pov(VMContext* ctx, RValue* args, int32_t arg
     REQUIRE_ARGC_AT_LEAST("joystick_has_pov", 1, RValue_makeBool(false));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeBool(false);
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     return RValue_makeBool(RunnerGamepad_isConnected(runner->gamepads, id));
 }
 
@@ -9779,7 +9781,7 @@ static RValue builtin_joystick_buttons(VMContext* ctx, RValue* args, int32_t arg
     REQUIRE_ARGC_AT_LEAST("joystick_buttons", 1, RValue_makeReal(0.0));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     if (!RunnerGamepad_isConnected(runner->gamepads, id)) return RValue_makeReal(0.0);
     return RValue_makeReal(GP_BUTTON_COUNT);
 }
@@ -9788,7 +9790,7 @@ static RValue builtin_joystick_name(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     REQUIRE_ARGC_AT_LEAST("joystick_name", 1, RValue_makeOwnedString(safeStrdup("")));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeOwnedString(safeStrdup(""));
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     return RValue_makeOwnedString(safeStrdup(RunnerGamepad_getDescription(runner->gamepads, id)));
 }
 
@@ -9796,7 +9798,7 @@ static RValue builtin_joystick_axes(VMContext* ctx, RValue* args, MAYBE_UNUSED i
     REQUIRE_ARGC_AT_LEAST("joystick_axes", 1, RValue_makeReal(0.0));
     Runner* runner = ctx->runner;
     if (runner == NULL || runner->gamepads == NULL) return RValue_makeReal(0.0);
-    int32_t id = RValue_toInt32(args[0]) - 1;
+    int32_t id = RunnerGamepad_joystickDevice(runner->gamepads, RValue_toInt32(args[0]));
     return RValue_makeReal(RunnerGamepad_getAxisCount(runner->gamepads, id));
 }
 
