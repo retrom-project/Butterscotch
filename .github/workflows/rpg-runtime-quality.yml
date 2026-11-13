@@ -1,0 +1,59 @@
+name: RPG Runtime Quality
+
+on:
+  pull_request:
+    branches: ["retrom/g0c94bfb05e3c"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rpg-runtime-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Validate fork source contract
+        run: python3 .github/rpg-runtime/verify-source.py
+      - name: Run Web host contract tests
+        run: python3 tests/test_retrom_web_host.py
+      - name: Test bounded image decoding
+        run: bash .github/rpg-runtime/test-image.sh
+      - name: Test lazy content reads
+        run: bash .github/rpg-runtime/test-lazy-data.sh
+      - name: Gamepad slot regression
+        run: bash .github/rpg-runtime/test-gamepad.sh
+      - name: Build Web assets
+        run: .github/rpg-runtime/build-web.sh "$RUNNER_TEMP/rpg-runtime-output"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.18.0
+      - name: Prepare browser regression tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/browser" --no-save playwright@1.61.1
+          "$RUNNER_TEMP/browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Render the non-commercial Loritta fixture
+        env:
+          RETROM_PLAYWRIGHT_ROOT: ${{ runner.temp }}/browser
+        run: node .github/rpg-runtime/test-web-render.mjs "$RUNNER_TEMP/rpg-runtime-output"
+      - name: Validate candidate assets
+        run: |
+          python3 .github/rpg-runtime/verify-release.py \
+            --output "$RUNNER_TEMP/rpg-runtime-output" \
+            --repository "https://github.com/$GITHUB_REPOSITORY" \
+            --tag retrom-core-g0c94bfb05e3c-r1-rc.1 \
+            --commit "$GITHUB_SHA"
+      - name: Upload branch integration candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: rpg-runtime-butterscotch-${{ github.sha }}
+          path: ${{ runner.temp }}/rpg-runtime-output
+          if-no-files-found: error
+          retention-days: 7

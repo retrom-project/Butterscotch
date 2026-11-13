@@ -172,9 +172,12 @@ static uint8_t* decodeBz2Qoi(const uint8_t* blob, size_t blobSize, bool gm2022_5
     uint8_t* uncompressed = (uint8_t*) malloc(uncompressedCapacity);
     if (!uncompressed) return nullptr;
 #ifdef USE_WUFFS_IMGDEC
-    wuffs_bzip2__decoder dec;
-    wuffs_base__status status = wuffs_bzip2__decoder__initialize(&dec, sizeof(dec), WUFFS_VERSION, 0);
+    // Wuffs' BZip2 decoder is over 4 MiB: keep it off bounded platform stacks.
+    wuffs_bzip2__decoder* dec = (wuffs_bzip2__decoder*)malloc(sizeof(*dec));
+    if (!dec) {free(uncompressed); return nullptr;}
+    wuffs_base__status status = wuffs_bzip2__decoder__initialize(dec, sizeof(*dec), WUFFS_VERSION, 0);
     if (!wuffs_base__status__is_ok(&status)) {
+        free(dec);
         free(uncompressed);
         return nullptr;
     }
@@ -182,18 +185,20 @@ static uint8_t* decodeBz2Qoi(const uint8_t* blob, size_t blobSize, bool gm2022_5
     wuffs_base__io_buffer dstBuf = wuffs_base__ptr_u8__writer(uncompressed, uncompressedCapacity);
     wuffs_base__io_buffer srcBuf = wuffs_base__ptr_u8__reader((uint8_t*)(blob + headerSize), blobSize - headerSize, true);
 
-    wuffs_base__range_ii_u64 workbufLen = wuffs_bzip2__decoder__workbuf_len(&dec);
+    wuffs_base__range_ii_u64 workbufLen = wuffs_bzip2__decoder__workbuf_len(dec);
     wuffs_base__slice_u8 workbuf = wuffs_base__empty_slice_u8();
     if (workbufLen.max_incl > 0) {
         uint8_t* workPtr = (uint8_t*)malloc(workbufLen.max_incl);
         if (workPtr == nullptr) {
+            free(dec);
             free(uncompressed);
             return nullptr;
         }
         workbuf = wuffs_base__make_slice_u8(workPtr, workbufLen.max_incl);
     }
 
-    status = wuffs_bzip2__decoder__transform_io(&dec, &dstBuf, &srcBuf, workbuf);
+    status = wuffs_bzip2__decoder__transform_io(dec, &dstBuf, &srcBuf, workbuf);
+    free(dec);
 
     if (workbuf.ptr != nullptr) free(workbuf.ptr);
 
@@ -232,17 +237,18 @@ uint8_t* ImageDecoder_decodeToRgba(const uint8_t* blob, size_t blobSize, bool gm
     }
 
 #ifdef USE_WUFFS_IMGDEC
-    wuffs_png__decoder dec;
-    wuffs_base__status status = wuffs_png__decoder__initialize(&dec, sizeof(dec), WUFFS_VERSION, 0);
-    if (!wuffs_base__status__is_ok(&status)) return nullptr;
+    wuffs_png__decoder* dec = (wuffs_png__decoder*)malloc(sizeof(*dec));
+    if (!dec) return nullptr;
+    wuffs_base__status status = wuffs_png__decoder__initialize(dec, sizeof(*dec), WUFFS_VERSION, 0);
+    if (!wuffs_base__status__is_ok(&status)) {free(dec); return nullptr;}
 
-    wuffs_base__image_decoder* imgDec = wuffs_png__decoder__upcast_as__wuffs_base__image_decoder(&dec);
+    wuffs_base__image_decoder* imgDec = wuffs_png__decoder__upcast_as__wuffs_base__image_decoder(dec);
 
     wuffs_base__io_buffer src = wuffs_base__ptr_u8__reader((uint8_t*)blob, blobSize, true);
 
     wuffs_base__image_config ic;
     status = wuffs_base__image_decoder__decode_image_config(imgDec, &ic, &src);
-    if (!wuffs_base__status__is_ok(&status)) return nullptr;
+    if (!wuffs_base__status__is_ok(&status)) {free(dec); return nullptr;}
 
     uint32_t w = wuffs_base__pixel_config__width(&ic.pixcfg);
     uint32_t h = wuffs_base__pixel_config__height(&ic.pixcfg);
@@ -256,11 +262,12 @@ uint8_t* ImageDecoder_decodeToRgba(const uint8_t* blob, size_t blobSize, bool gm
 
     size_t pixBufSize = (size_t)w * (size_t)h * 4;
     uint8_t* pixels = (uint8_t*)safeMalloc(pixBufSize);
-    if (!pixels) return nullptr;
+    if (!pixels) {free(dec); return nullptr;}
 
     wuffs_base__pixel_buffer pb;
     status = wuffs_base__pixel_buffer__set_from_slice(&pb, &ic.pixcfg, wuffs_base__make_slice_u8(pixels, pixBufSize));
     if (!wuffs_base__status__is_ok(&status)) {
+        free(dec);
         free(pixels);
         return nullptr;
     }
@@ -270,6 +277,7 @@ uint8_t* ImageDecoder_decodeToRgba(const uint8_t* blob, size_t blobSize, bool gm
     if (workbufLen.max_incl > 0) {
         uint8_t* workPtr = (uint8_t*)safeMalloc(workbufLen.max_incl);
         if (workPtr == nullptr) {
+            free(dec);
             free(pixels);
             return nullptr;
         }
@@ -277,6 +285,7 @@ uint8_t* ImageDecoder_decodeToRgba(const uint8_t* blob, size_t blobSize, bool gm
     }
 
     status = wuffs_base__image_decoder__decode_frame(imgDec, &pb, &src, WUFFS_BASE__PIXEL_BLEND__SRC, workbuf, nullptr);
+    free(dec);
 
     if (workbuf.ptr) free(workbuf.ptr);
 
